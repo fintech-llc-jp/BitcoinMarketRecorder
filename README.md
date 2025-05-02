@@ -7,6 +7,9 @@ BitFlyerは、現物BTC_JPY、CFD取引がFX_BTC_JPYとなる。
 DBに記録する場合は、現物をBTC_JPY, レバレッジ、CFDをFX_BTC_JPYと名前を揃えること。exchangeをGMOかBITFとすることで
 どこの取引所のものか判断できるようにする。
 
+またWebsocketは、GMOで１つセッションを開いてから先物・現物のマーケットボード、先物、現物の約定情報を1秒間あいだをあけてリクエストする。
+Bitflyerも同様の処理をおこなう。
+
 Java 17 SpringBoot, DuckDB
 
 # GMO API settings
