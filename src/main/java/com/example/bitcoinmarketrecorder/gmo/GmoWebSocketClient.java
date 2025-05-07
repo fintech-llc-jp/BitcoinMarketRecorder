@@ -48,8 +48,8 @@ public class GmoWebSocketClient {
   private Disposable connectionDisposable;
 
   // Symbols defined in README.md (GMO versions)
-  private static final String SYMBOL_BTC_SPOT = "BTC_JPY"; // 現物
-  private static final String SYMBOL_BTC_FX = "FX_BTC_JPY"; // レバレッジ取引
+  private static final String SYMBOL_BTC_SPOT = "BTC"; // 現物
+  private static final String SYMBOL_BTC_FX = "BTC_JPY"; // レバレッジ取引
 
   // GMO channel names
   private static final String CHANNEL_ORDERBOOK = "orderbooks";
