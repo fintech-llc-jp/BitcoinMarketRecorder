@@ -54,7 +54,7 @@ public class BitflyerWebSocketClient {
   private static final String SYMBOL_BTC_FX = "FX_BTC_JPY"; // CFD (FX)
 
   // Bitflyer channel names
-  private static final String CHANNEL_BOARD_PREFIX = "lightning_board_";
+  private static final String CHANNEL_BOARD_PREFIX = "lightning_board_snapshot_";
   private static final String CHANNEL_EXECUTIONS_PREFIX = "lightning_executions_";
 
   @Autowired

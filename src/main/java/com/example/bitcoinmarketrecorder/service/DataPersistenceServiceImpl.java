@@ -2,28 +2,38 @@ package com.example.bitcoinmarketrecorder.service;
 
 import com.example.bitcoinmarketrecorder.model.MarketBoard;
 import com.example.bitcoinmarketrecorder.model.Trade;
-import java.sql.PreparedStatement;
-import java.sql.SQLException;
+import jakarta.annotation.PreDestroy;
 import java.sql.Timestamp;
-import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.jdbc.core.BatchPreparedStatementSetter;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class DataPersistenceServiceImpl implements DataPersistenceService {
 
   private static final Logger logger = LoggerFactory.getLogger(DataPersistenceServiceImpl.class);
   private final JdbcTemplate jdbcTemplate;
+  private final BlockingQueue<Trade> tradeQueue;
+  private final BlockingQueue<MarketBoard> boardQueue;
+  private final ExecutorService workerExecutor;
+  private volatile boolean isRunning = true;
 
   @Autowired
   public DataPersistenceServiceImpl(JdbcTemplate jdbcTemplate) {
     this.jdbcTemplate = jdbcTemplate;
+    this.tradeQueue = new LinkedBlockingQueue<>();
+    this.boardQueue = new LinkedBlockingQueue<>();
+    this.workerExecutor = Executors.newSingleThreadExecutor();
+    startWorker();
     createTablesIfNotExist();
   }
 
@@ -93,107 +103,144 @@ public class DataPersistenceServiceImpl implements DataPersistenceService {
     }
   }
 
-  @Override
-  @Transactional
-  public void saveTrades(List<Trade> trades) {
-    if (trades == null || trades.isEmpty()) {
-      return;
-    }
+  private void startWorker() {
+    workerExecutor.submit(
+        () -> {
+          while (isRunning) {
+            try {
+              // Process trades
+              List<Trade> trades = new ArrayList<>();
+              tradeQueue.drainTo(trades, 100); // 最大100件までバッチ処理
+              if (!trades.isEmpty()) {
+                saveTradesToDb(trades);
+              }
 
-    String sql =
-        "INSERT INTO trades (exchange, symbol, trade_id, price, size, side, timestamp, created_at) "
-            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
-            + "ON CONFLICT (trade_id) DO NOTHING"; // Avoid duplicates based on trade_id
+              // Process market boards
+              List<MarketBoard> boards = new ArrayList<>();
+              boardQueue.drainTo(boards, 100);
+              if (!boards.isEmpty()) {
+                saveMarketBoardsToDb(boards);
+              }
 
-    jdbcTemplate.batchUpdate(
-        sql,
-        new BatchPreparedStatementSetter() {
-          @Override
-          public void setValues(PreparedStatement ps, int i) throws SQLException {
-            Trade trade = trades.get(i);
-            ps.setString(1, trade.getExchange());
-            ps.setString(2, trade.getSymbol());
-            ps.setString(3, trade.getTradeId());
-            // Convert BigDecimal to string to avoid scale issues
-            ps.setString(4, trade.getPrice() != null ? trade.getPrice().toString() : null);
-            ps.setString(5, trade.getSize() != null ? trade.getSize().toString() : null);
-            ps.setString(6, trade.getSide());
-            // Convert Instant to SQL Timestamp
-            ps.setTimestamp(
-                7, trade.getTimestamp() != null ? Timestamp.from(trade.getTimestamp()) : null);
-            // Use current time for created_at if not set, otherwise use provided time
-            ps.setTimestamp(
-                8,
-                trade.getCreatedAt() != null
-                    ? Timestamp.valueOf(trade.getCreatedAt())
-                    : Timestamp.valueOf(LocalDateTime.now()));
-          }
-
-          @Override
-          public int getBatchSize() {
-            return trades.size();
+              // キューが空の場合は少し待機
+              if (trades.isEmpty() && boards.isEmpty()) {
+                Thread.sleep(100);
+              }
+            } catch (InterruptedException e) {
+              Thread.currentThread().interrupt();
+              break;
+            } catch (Exception e) {
+              logger.error("Error in worker thread: {}", e.getMessage(), e);
+            }
           }
         });
-    // System.out.println("Saved " + trades.size() + " trades."); // Optional: logging
   }
 
   @Override
-  @Transactional
-  public void saveMarketBoard(MarketBoard board) {
-    if (board == null) {
-      return;
+  public void saveTrades(List<Trade> trades) {
+    try {
+      tradeQueue.addAll(trades);
+    } catch (Exception e) {
+      logger.error("Error adding trades to queue: {}", e.getMessage(), e);
     }
+  }
 
-    String sql =
-        "INSERT INTO market_boards (exchange, symbol, ts, "
-            + "bid1, bid1vol, bid2, bid2vol, bid3, bid3vol, bid4, bid4vol, "
-            + "bid5, bid5vol, bid6, bid6vol, bid7, bid7vol, bid8, bid8vol, "
-            + "ask1, ask1vol, ask2, ask2vol, ask3, ask3vol, ask4, ask4vol, "
-            + "ask5, ask5vol, ask6, ask6vol, ask7, ask7vol, ask8, ask8vol) "
-            + "VALUES (?, ?, ?, "
-            + "?, ?, ?, ?, ?, ?, ?, ?, "
-            + "?, ?, ?, ?, ?, ?, ?, ?, "
-            + "?, ?, ?, ?, ?, ?, ?, ?, "
-            + "?, ?, ?, ?, ?, ?, ?, ?)";
+  @Override
+  public void saveMarketBoard(MarketBoard board) {
+    try {
+      boardQueue.add(board);
+    } catch (Exception e) {
+      logger.error("Error adding market board to queue: {}", e.getMessage(), e);
+    }
+  }
 
-    jdbcTemplate.update(
-        sql,
-        board.getExchange(),
-        board.getSymbol(),
-        Timestamp.from(board.getTs()),
-        // Bids - convert to string to avoid scale issues
-        board.getBid1() != null ? board.getBid1().toString() : null,
-        board.getBid1vol() != null ? board.getBid1vol().toString() : null,
-        board.getBid2() != null ? board.getBid2().toString() : null,
-        board.getBid2vol() != null ? board.getBid2vol().toString() : null,
-        board.getBid3() != null ? board.getBid3().toString() : null,
-        board.getBid3vol() != null ? board.getBid3vol().toString() : null,
-        board.getBid4() != null ? board.getBid4().toString() : null,
-        board.getBid4vol() != null ? board.getBid4vol().toString() : null,
-        board.getBid5() != null ? board.getBid5().toString() : null,
-        board.getBid5vol() != null ? board.getBid5vol().toString() : null,
-        board.getBid6() != null ? board.getBid6().toString() : null,
-        board.getBid6vol() != null ? board.getBid6vol().toString() : null,
-        board.getBid7() != null ? board.getBid7().toString() : null,
-        board.getBid7vol() != null ? board.getBid7vol().toString() : null,
-        board.getBid8() != null ? board.getBid8().toString() : null,
-        board.getBid8vol() != null ? board.getBid8vol().toString() : null,
-        // Asks - convert to string to avoid scale issues
-        board.getAsk1() != null ? board.getAsk1().toString() : null,
-        board.getAsk1vol() != null ? board.getAsk1vol().toString() : null,
-        board.getAsk2() != null ? board.getAsk2().toString() : null,
-        board.getAsk2vol() != null ? board.getAsk2vol().toString() : null,
-        board.getAsk3() != null ? board.getAsk3().toString() : null,
-        board.getAsk3vol() != null ? board.getAsk3vol().toString() : null,
-        board.getAsk4() != null ? board.getAsk4().toString() : null,
-        board.getAsk4vol() != null ? board.getAsk4vol().toString() : null,
-        board.getAsk5() != null ? board.getAsk5().toString() : null,
-        board.getAsk5vol() != null ? board.getAsk5vol().toString() : null,
-        board.getAsk6() != null ? board.getAsk6().toString() : null,
-        board.getAsk6vol() != null ? board.getAsk6vol().toString() : null,
-        board.getAsk7() != null ? board.getAsk7().toString() : null,
-        board.getAsk7vol() != null ? board.getAsk7vol().toString() : null,
-        board.getAsk8() != null ? board.getAsk8().toString() : null,
-        board.getAsk8vol() != null ? board.getAsk8vol().toString() : null);
+  private void saveTradesToDb(List<Trade> trades) {
+    try {
+      jdbcTemplate.batchUpdate(
+          "INSERT INTO trades (exchange, symbol, trade_id, price, size, side, timestamp,"
+              + " created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (trade_id) DO NOTHING",
+          trades,
+          100,
+          (ps, trade) -> {
+            ps.setString(1, trade.getExchange());
+            ps.setString(2, trade.getSymbol());
+            ps.setString(3, trade.getTradeId());
+            ps.setBigDecimal(4, trade.getPrice());
+            ps.setBigDecimal(5, trade.getSize());
+            ps.setString(6, trade.getSide());
+            ps.setTimestamp(7, Timestamp.from(trade.getTimestamp()));
+            ps.setTimestamp(8, Timestamp.valueOf(trade.getCreatedAt()));
+          });
+    } catch (Exception e) {
+      logger.error("Error saving trades to database: {}", e.getMessage(), e);
+    }
+  }
+
+  private void saveMarketBoardsToDb(List<MarketBoard> boards) {
+    try {
+      jdbcTemplate.batchUpdate(
+          "INSERT INTO market_boards (exchange, symbol, ts, bid1, bid1vol, bid2, bid2vol, bid3,"
+              + " bid3vol, bid4, bid4vol, bid5, bid5vol, bid6, bid6vol, bid7, bid7vol, bid8,"
+              + " bid8vol, ask1, ask1vol, ask2, ask2vol, ask3, ask3vol, ask4, ask4vol, ask5,"
+              + " ask5vol, ask6, ask6vol, ask7, ask7vol, ask8, ask8vol) VALUES (?, ?, ?, ?, ?, ?,"
+              + " ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,"
+              + " ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          boards,
+          100,
+          (ps, board) -> {
+            int idx = 1;
+            ps.setString(idx++, board.getExchange());
+            ps.setString(idx++, board.getSymbol());
+            ps.setTimestamp(idx++, Timestamp.from(board.getTs()));
+            ps.setBigDecimal(idx++, board.getBid1());
+            ps.setBigDecimal(idx++, board.getBid1vol());
+            ps.setBigDecimal(idx++, board.getBid2());
+            ps.setBigDecimal(idx++, board.getBid2vol());
+            ps.setBigDecimal(idx++, board.getBid3());
+            ps.setBigDecimal(idx++, board.getBid3vol());
+            ps.setBigDecimal(idx++, board.getBid4());
+            ps.setBigDecimal(idx++, board.getBid4vol());
+            ps.setBigDecimal(idx++, board.getBid5());
+            ps.setBigDecimal(idx++, board.getBid5vol());
+            ps.setBigDecimal(idx++, board.getBid6());
+            ps.setBigDecimal(idx++, board.getBid6vol());
+            ps.setBigDecimal(idx++, board.getBid7());
+            ps.setBigDecimal(idx++, board.getBid7vol());
+            ps.setBigDecimal(idx++, board.getBid8());
+            ps.setBigDecimal(idx++, board.getBid8vol());
+            ps.setBigDecimal(idx++, board.getAsk1());
+            ps.setBigDecimal(idx++, board.getAsk1vol());
+            ps.setBigDecimal(idx++, board.getAsk2());
+            ps.setBigDecimal(idx++, board.getAsk2vol());
+            ps.setBigDecimal(idx++, board.getAsk3());
+            ps.setBigDecimal(idx++, board.getAsk3vol());
+            ps.setBigDecimal(idx++, board.getAsk4());
+            ps.setBigDecimal(idx++, board.getAsk4vol());
+            ps.setBigDecimal(idx++, board.getAsk5());
+            ps.setBigDecimal(idx++, board.getAsk5vol());
+            ps.setBigDecimal(idx++, board.getAsk6());
+            ps.setBigDecimal(idx++, board.getAsk6vol());
+            ps.setBigDecimal(idx++, board.getAsk7());
+            ps.setBigDecimal(idx++, board.getAsk7vol());
+            ps.setBigDecimal(idx++, board.getAsk8());
+            ps.setBigDecimal(idx, board.getAsk8vol());
+          });
+    } catch (Exception e) {
+      logger.error("Error saving market boards to database: {}", e.getMessage(), e);
+    }
+  }
+
+  @PreDestroy
+  public void shutdown() {
+    isRunning = false;
+    workerExecutor.shutdown();
+    try {
+      if (!workerExecutor.awaitTermination(60, TimeUnit.SECONDS)) {
+        workerExecutor.shutdownNow();
+      }
+    } catch (InterruptedException e) {
+      workerExecutor.shutdownNow();
+      Thread.currentThread().interrupt();
+    }
   }
 }
