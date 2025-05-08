@@ -3,6 +3,7 @@ package com.example.bitcoinmarketrecorder.service;
 import com.example.bitcoinmarketrecorder.model.MarketBoard;
 import com.example.bitcoinmarketrecorder.model.Trade;
 import jakarta.annotation.PreDestroy;
+import java.math.RoundingMode;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
@@ -165,8 +166,9 @@ public class DataPersistenceServiceImpl implements DataPersistenceService {
             ps.setString(1, trade.getExchange());
             ps.setString(2, trade.getSymbol());
             ps.setString(3, trade.getTradeId());
-            ps.setBigDecimal(4, trade.getPrice());
-            ps.setBigDecimal(5, trade.getSize());
+            // BigDecimalのスケールを0に設定
+            ps.setBigDecimal(4, trade.getPrice().setScale(0, RoundingMode.HALF_UP));
+            ps.setBigDecimal(5, trade.getSize().setScale(8, RoundingMode.HALF_UP));
             ps.setString(6, trade.getSide());
             ps.setTimestamp(7, Timestamp.from(trade.getTimestamp()));
             ps.setTimestamp(8, Timestamp.valueOf(trade.getCreatedAt()));
@@ -184,7 +186,7 @@ public class DataPersistenceServiceImpl implements DataPersistenceService {
               + " bid8vol, ask1, ask1vol, ask2, ask2vol, ask3, ask3vol, ask4, ask4vol, ask5,"
               + " ask5vol, ask6, ask6vol, ask7, ask7vol, ask8, ask8vol) VALUES (?, ?, ?, ?, ?, ?,"
               + " ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,"
-              + " ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              + " ?, ?)",
           boards,
           100,
           (ps, board) -> {
@@ -192,38 +194,135 @@ public class DataPersistenceServiceImpl implements DataPersistenceService {
             ps.setString(idx++, board.getExchange());
             ps.setString(idx++, board.getSymbol());
             ps.setTimestamp(idx++, Timestamp.from(board.getTs()));
-            ps.setBigDecimal(idx++, board.getBid1());
-            ps.setBigDecimal(idx++, board.getBid1vol());
-            ps.setBigDecimal(idx++, board.getBid2());
-            ps.setBigDecimal(idx++, board.getBid2vol());
-            ps.setBigDecimal(idx++, board.getBid3());
-            ps.setBigDecimal(idx++, board.getBid3vol());
-            ps.setBigDecimal(idx++, board.getBid4());
-            ps.setBigDecimal(idx++, board.getBid4vol());
-            ps.setBigDecimal(idx++, board.getBid5());
-            ps.setBigDecimal(idx++, board.getBid5vol());
-            ps.setBigDecimal(idx++, board.getBid6());
-            ps.setBigDecimal(idx++, board.getBid6vol());
-            ps.setBigDecimal(idx++, board.getBid7());
-            ps.setBigDecimal(idx++, board.getBid7vol());
-            ps.setBigDecimal(idx++, board.getBid8());
-            ps.setBigDecimal(idx++, board.getBid8vol());
-            ps.setBigDecimal(idx++, board.getAsk1());
-            ps.setBigDecimal(idx++, board.getAsk1vol());
-            ps.setBigDecimal(idx++, board.getAsk2());
-            ps.setBigDecimal(idx++, board.getAsk2vol());
-            ps.setBigDecimal(idx++, board.getAsk3());
-            ps.setBigDecimal(idx++, board.getAsk3vol());
-            ps.setBigDecimal(idx++, board.getAsk4());
-            ps.setBigDecimal(idx++, board.getAsk4vol());
-            ps.setBigDecimal(idx++, board.getAsk5());
-            ps.setBigDecimal(idx++, board.getAsk5vol());
-            ps.setBigDecimal(idx++, board.getAsk6());
-            ps.setBigDecimal(idx++, board.getAsk6vol());
-            ps.setBigDecimal(idx++, board.getAsk7());
-            ps.setBigDecimal(idx++, board.getAsk7vol());
-            ps.setBigDecimal(idx++, board.getAsk8());
-            ps.setBigDecimal(idx, board.getAsk8vol());
+            // BigDecimalのスケールを設定
+            ps.setBigDecimal(
+                idx++,
+                board.getBid1() != null ? board.getBid1().setScale(0, RoundingMode.HALF_UP) : null);
+            ps.setBigDecimal(
+                idx++,
+                board.getBid1vol() != null
+                    ? board.getBid1vol().setScale(8, RoundingMode.HALF_UP)
+                    : null);
+            ps.setBigDecimal(
+                idx++,
+                board.getBid2() != null ? board.getBid2().setScale(0, RoundingMode.HALF_UP) : null);
+            ps.setBigDecimal(
+                idx++,
+                board.getBid2vol() != null
+                    ? board.getBid2vol().setScale(8, RoundingMode.HALF_UP)
+                    : null);
+            ps.setBigDecimal(
+                idx++,
+                board.getBid3() != null ? board.getBid3().setScale(0, RoundingMode.HALF_UP) : null);
+            ps.setBigDecimal(
+                idx++,
+                board.getBid3vol() != null
+                    ? board.getBid3vol().setScale(8, RoundingMode.HALF_UP)
+                    : null);
+            ps.setBigDecimal(
+                idx++,
+                board.getBid4() != null ? board.getBid4().setScale(0, RoundingMode.HALF_UP) : null);
+            ps.setBigDecimal(
+                idx++,
+                board.getBid4vol() != null
+                    ? board.getBid4vol().setScale(8, RoundingMode.HALF_UP)
+                    : null);
+            ps.setBigDecimal(
+                idx++,
+                board.getBid5() != null ? board.getBid5().setScale(0, RoundingMode.HALF_UP) : null);
+            ps.setBigDecimal(
+                idx++,
+                board.getBid5vol() != null
+                    ? board.getBid5vol().setScale(8, RoundingMode.HALF_UP)
+                    : null);
+            ps.setBigDecimal(
+                idx++,
+                board.getBid6() != null ? board.getBid6().setScale(0, RoundingMode.HALF_UP) : null);
+            ps.setBigDecimal(
+                idx++,
+                board.getBid6vol() != null
+                    ? board.getBid6vol().setScale(8, RoundingMode.HALF_UP)
+                    : null);
+            ps.setBigDecimal(
+                idx++,
+                board.getBid7() != null ? board.getBid7().setScale(0, RoundingMode.HALF_UP) : null);
+            ps.setBigDecimal(
+                idx++,
+                board.getBid7vol() != null
+                    ? board.getBid7vol().setScale(8, RoundingMode.HALF_UP)
+                    : null);
+            ps.setBigDecimal(
+                idx++,
+                board.getBid8() != null ? board.getBid8().setScale(0, RoundingMode.HALF_UP) : null);
+            ps.setBigDecimal(
+                idx++,
+                board.getBid8vol() != null
+                    ? board.getBid8vol().setScale(8, RoundingMode.HALF_UP)
+                    : null);
+            ps.setBigDecimal(
+                idx++,
+                board.getAsk1() != null ? board.getAsk1().setScale(0, RoundingMode.HALF_UP) : null);
+            ps.setBigDecimal(
+                idx++,
+                board.getAsk1vol() != null
+                    ? board.getAsk1vol().setScale(8, RoundingMode.HALF_UP)
+                    : null);
+            ps.setBigDecimal(
+                idx++,
+                board.getAsk2() != null ? board.getAsk2().setScale(0, RoundingMode.HALF_UP) : null);
+            ps.setBigDecimal(
+                idx++,
+                board.getAsk2vol() != null
+                    ? board.getAsk2vol().setScale(8, RoundingMode.HALF_UP)
+                    : null);
+            ps.setBigDecimal(
+                idx++,
+                board.getAsk3() != null ? board.getAsk3().setScale(0, RoundingMode.HALF_UP) : null);
+            ps.setBigDecimal(
+                idx++,
+                board.getAsk3vol() != null
+                    ? board.getAsk3vol().setScale(8, RoundingMode.HALF_UP)
+                    : null);
+            ps.setBigDecimal(
+                idx++,
+                board.getAsk4() != null ? board.getAsk4().setScale(0, RoundingMode.HALF_UP) : null);
+            ps.setBigDecimal(
+                idx++,
+                board.getAsk4vol() != null
+                    ? board.getAsk4vol().setScale(8, RoundingMode.HALF_UP)
+                    : null);
+            ps.setBigDecimal(
+                idx++,
+                board.getAsk5() != null ? board.getAsk5().setScale(0, RoundingMode.HALF_UP) : null);
+            ps.setBigDecimal(
+                idx++,
+                board.getAsk5vol() != null
+                    ? board.getAsk5vol().setScale(8, RoundingMode.HALF_UP)
+                    : null);
+            ps.setBigDecimal(
+                idx++,
+                board.getAsk6() != null ? board.getAsk6().setScale(0, RoundingMode.HALF_UP) : null);
+            ps.setBigDecimal(
+                idx++,
+                board.getAsk6vol() != null
+                    ? board.getAsk6vol().setScale(8, RoundingMode.HALF_UP)
+                    : null);
+            ps.setBigDecimal(
+                idx++,
+                board.getAsk7() != null ? board.getAsk7().setScale(0, RoundingMode.HALF_UP) : null);
+            ps.setBigDecimal(
+                idx++,
+                board.getAsk7vol() != null
+                    ? board.getAsk7vol().setScale(8, RoundingMode.HALF_UP)
+                    : null);
+            ps.setBigDecimal(
+                idx++,
+                board.getAsk8() != null ? board.getAsk8().setScale(0, RoundingMode.HALF_UP) : null);
+            ps.setBigDecimal(
+                idx,
+                board.getAsk8vol() != null
+                    ? board.getAsk8vol().setScale(8, RoundingMode.HALF_UP)
+                    : null);
           });
     } catch (Exception e) {
       logger.error("Error saving market boards to database: {}", e.getMessage(), e);

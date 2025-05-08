@@ -69,7 +69,7 @@ public class GmoWebSocketClient {
               .execute(
                   URI.create(wsUrl),
                   session -> {
-                    // サブスクリプションメッセージの送信間隔を2秒に延長
+                    // サブスクリプションメッセージの送信間隔を2秒に設定
                     Flux<WebSocketMessage> subscriptionMessages =
                         Flux.concat(
                             createSubscriptionMessageMono(
@@ -193,8 +193,14 @@ public class GmoWebSocketClient {
   private Trade convertToDomainTrade(GmoTradeRecord gmoTrade) {
     Trade trade = new Trade();
     trade.setExchange("GMO");
-    trade.setSymbol(gmoTrade.getSymbol());
-    trade.setTradeId("GMO-" + gmoTrade.getExecutionId());
+    // シンボル名を統一
+    trade.setSymbol(gmoTrade.getSymbol().equals("BTC") ? "BTC_JPY" : gmoTrade.getSymbol());
+    // executionIdがnullの場合は現在時刻を使用
+    String executionId = gmoTrade.getExecutionId();
+    if (executionId == null || executionId.isEmpty()) {
+      executionId = String.valueOf(System.currentTimeMillis());
+    }
+    trade.setTradeId("GMO-" + executionId);
     trade.setPrice(gmoTrade.getPrice());
     trade.setSize(gmoTrade.getSize());
     trade.setSide(gmoTrade.getSide());
@@ -207,6 +213,7 @@ public class GmoWebSocketClient {
       trade.setTimestamp(Instant.now()); // Fallback
     }
     trade.setCreatedAt(LocalDateTime.now(ZoneOffset.UTC));
+    logger.debug("Converted GMO trade: {}", trade);
     return trade;
   }
 
