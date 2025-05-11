@@ -1,11 +1,9 @@
 # BitcoinMarketRecorder
 Market Data Recorder for Bitcoin on GM and Bitflyer　both future and spot
 
-GMOおよびBitflyerのPublicのWebsocketから先物と現物の板データとトレードデータを読み込んでDuckDBに記録します。
+GMOおよびBitflyerのPublicのWebsocketから先物と現物の板データとトレードデータを読み込んでCSVファイルに記録します。
 GMOでは、現物のBTCとレバレッジ取引のBTC_JPYの板と約定情報を記録する。
 BitFlyerは、現物BTC_JPY、CFD取引がFX_BTC_JPYとなる。
-DBに記録する場合は、現物をBTC_JPY, レバレッジ、CFDをFX_BTC_JPYと名前を揃えること。exchangeをGMOかBITFとすることで
-どこの取引所のものか判断できるようにする。
 
 またWebsocketは、GMOで１つセッションを開いてから先物・現物のマーケットボード、先物、現物の約定情報を1秒間あいだをあけてリクエストする。
 Bitflyerも同様の処理をおこなう。
@@ -71,3 +69,6 @@ class MarketBoard(
     val ask8vol: Double,
     val ts: Instant
 ) 
+
+
+

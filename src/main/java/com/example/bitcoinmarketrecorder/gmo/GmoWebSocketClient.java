@@ -17,9 +17,9 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -46,6 +46,7 @@ public class GmoWebSocketClient {
   private final ObjectMapper objectMapper = new ObjectMapper();
   private final DataPersistenceService persistenceService;
   private Disposable connectionDisposable;
+  private final AtomicBoolean isReconnecting = new AtomicBoolean(false);
 
   // Symbols defined in README.md (GMO versions)
   private static final String SYMBOL_BTC_SPOT = "BTC"; // 現物
@@ -69,6 +70,7 @@ public class GmoWebSocketClient {
               .execute(
                   URI.create(wsUrl),
                   session -> {
+                    logger.info("GMO WebSocket session established");
                     // サブスクリプションメッセージの送信間隔を2秒に設定
                     Flux<WebSocketMessage> subscriptionMessages =
                         Flux.concat(
@@ -89,8 +91,8 @@ public class GmoWebSocketClient {
                             session
                                 .receive()
                                 .map(WebSocketMessage::getPayloadAsText)
-                                .publishOn(
-                                    Schedulers.boundedElastic()) // Process on separate thread
+                                .doOnNext(msg -> logger.info("Raw message received: {}", msg))
+                                .publishOn(Schedulers.boundedElastic())
                                 .flatMap(this::handleMessage)
                                 .onErrorResume(
                                     e -> {
@@ -98,19 +100,26 @@ public class GmoWebSocketClient {
                                           "Error processing GMO WebSocket message: {}",
                                           e.getMessage(),
                                           e);
-                                      return Mono.empty(); // Continue processing
+                                      reconnect();
+                                      return Mono.empty();
                                     }))
-                        .then(); // Complete Mono<Void> when receiving completes
+                        .then();
                   })
               .retryWhen(
                   Retry.backoff(Long.MAX_VALUE, Duration.ofSeconds(5))
                       .maxBackoff(Duration.ofMinutes(1)))
               .doOnError(
-                  error -> logger.error("GMO WebSocket connection error: {}", error.getMessage()))
+                  error -> {
+                    logger.error("GMO WebSocket connection error: {}", error.getMessage());
+                    reconnect();
+                  })
               .doFinally(
-                  signalType -> logger.warn("GMO WebSocket connection closed: {}", signalType))
+                  signalType -> {
+                    logger.warn("GMO WebSocket connection closed: {}", signalType);
+                    reconnect();
+                  })
               .subscribe(
-                  null, // onNext not needed
+                  null,
                   error ->
                       logger.error(
                           "GMO WebSocket connection failed permanently: {}", error.getMessage()),
@@ -142,52 +151,82 @@ public class GmoWebSocketClient {
               symbol.toUpperCase() // シンボルを大文字に変換
               );
       String jsonMessage = objectMapper.writeValueAsString(messageMap);
-      logger.debug("Sending GMO subscription message: {}", jsonMessage);
+      // logger.info(
+      //     "Sending GMO subscription message - Channel: {}, Symbol: {}, Message: {}",
+      //     channel,
+      //     symbol,
+      //     jsonMessage);
       return Mono.just(session.textMessage(jsonMessage));
     } catch (JsonProcessingException e) {
-      logger.error("Failed to create GMO subscription message for {}: {}", channel, e.getMessage());
+      // logger.error(
+      //     "Failed to create GMO subscription message for channel: {}, symbol: {}, error: {}",
+      //     channel,
+      //     symbol,
+      //     e.getMessage());
       return Mono.error(e);
     }
   }
 
   private Mono<Void> handleMessage(String jsonPayload) {
     try {
+      logger.info("Processing GMO message: {}", jsonPayload);
       JsonNode rootNode = objectMapper.readTree(jsonPayload);
 
-      // エラーメッセージのチェック
-      if (rootNode.has("error")) {
-        logger.error("Received error from GMO WebSocket: {}", rootNode.get("error").asText());
-        return Mono.empty();
-      }
+      // チャンネルメッセージの処理
+      if (rootNode.has("channel")) {
+        String channel = rootNode.get("channel").asText();
+        // logger.info("Processing GMO channel message - Channel: {}", channel);
 
-      // チャンネル情報の取得（エラーメッセージの場合はnullになる可能性がある）
-      JsonNode channelNode = rootNode.get("channel");
-      if (channelNode == null) {
-        logger.warn("Received message without channel: {}", jsonPayload);
-        return Mono.empty();
-      }
-      String channel = channelNode.asText();
-
-      if (CHANNEL_TRADES.equals(channel)) {
-        GmoTradeRecord tradeRecord = objectMapper.treeToValue(rootNode, GmoTradeRecord.class);
-        Trade trade = convertToDomainTrade(tradeRecord);
-        List<Trade> trades = new ArrayList<>();
-        trades.add(trade);
-        persistenceService.saveTrades(trades);
-      } else if (CHANNEL_ORDERBOOK.equals(channel)) {
-        GmoOrderbook orderbook = objectMapper.treeToValue(rootNode, GmoOrderbook.class);
-        MarketBoard marketBoard = convertToDomainMarketBoard(orderbook);
-        logger.debug("Received GMO MarketBoard for {}: {}", orderbook.getSymbol(), marketBoard);
-        persistenceService.saveMarketBoard(marketBoard);
+        if (CHANNEL_TRADES.equals(channel)) {
+          // Single trade object
+          GmoTradeRecord trade = objectMapper.convertValue(rootNode, GmoTradeRecord.class);
+          Trade domainTrade = convertToDomainTrade(trade);
+          logger.info("Received GMO trade: {}", trade);
+          persistenceService.saveTrades(List.of(domainTrade));
+        } else if (CHANNEL_ORDERBOOK.equals(channel)) {
+          GmoOrderbook orderbook = objectMapper.convertValue(rootNode, GmoOrderbook.class);
+          MarketBoard marketBoard = convertToDomainMarketBoard(orderbook);
+          logger.info("Received GMO MarketBoard for symbol: {}", orderbook.getSymbol());
+          persistenceService.saveMarketBoard(marketBoard);
+        } else {
+          logger.debug("Received unhandled channel message: {}", channel);
+        }
+      } else if (rootNode.has("result")) {
+        logger.info("Received subscription confirmation: {}", rootNode.get("result"));
+      } else if (rootNode.has("error")) {
+        logger.error("Received error from GMO: {}", rootNode.get("error"));
+        reconnect();
       } else {
-        logger.debug("Received unhandled channel message: {}", channel);
+        logger.info("Received other message: {}", jsonPayload);
       }
-    } catch (JsonProcessingException e) {
-      logger.warn("Failed to parse GMO WebSocket message: {}", jsonPayload, e);
     } catch (Exception e) {
       logger.error("Error handling GMO message: {}", jsonPayload, e);
+      reconnect();
     }
     return Mono.empty();
+  }
+
+  private void reconnect() {
+    if (isReconnecting.compareAndSet(false, true)) {
+      logger.info("Attempting to reconnect to GMO WebSocket...");
+      if (connectionDisposable != null && !connectionDisposable.isDisposed()) {
+        connectionDisposable.dispose();
+      }
+      // 5秒待ってから再接続を試みる
+      Mono.delay(Duration.ofSeconds(5))
+          .subscribe(
+              delay -> {
+                connect();
+                isReconnecting.set(false);
+                logger.info("Reconnection attempt completed");
+              },
+              error -> {
+                logger.error("Failed to schedule reconnection: {}", error.getMessage());
+                isReconnecting.set(false);
+              });
+    } else {
+      logger.debug("Reconnection already in progress, skipping...");
+    }
   }
 
   private Trade convertToDomainTrade(GmoTradeRecord gmoTrade) {

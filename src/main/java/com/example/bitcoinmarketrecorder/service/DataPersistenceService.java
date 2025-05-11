@@ -7,5 +7,5 @@ import java.util.List;
 public interface DataPersistenceService {
   void saveTrades(List<Trade> trades);
 
-  void saveMarketBoard(MarketBoard marketBoard);
+  void saveMarketBoard(MarketBoard board);
 }
