@@ -8,7 +8,7 @@ BitFlyerは、現物BTC_JPY、CFD取引がFX_BTC_JPYとなる。
 またWebsocketは、GMOで１つセッションを開いてから先物・現物のマーケットボード、先物、現物の約定情報を1秒間あいだをあけてリクエストする。
 Bitflyerも同様の処理をおこなう。
 
-Java 17 SpringBoot, DuckDB
+Java 17 SpringBoot, CSV File
 
 # GMO API settings
 gmo.api.base-url=https://api.coin.z.com
