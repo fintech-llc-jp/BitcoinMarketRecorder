@@ -2,6 +2,7 @@ package com.example.bitcoinmarketrecorder.gmo;
 
 import com.example.bitcoinmarketrecorder.gmo.model.GmoOrderbook;
 import com.example.bitcoinmarketrecorder.gmo.model.GmoTradeRecord;
+import com.example.bitcoinmarketrecorder.model.BestBidAsk;
 import com.example.bitcoinmarketrecorder.model.MarketBoard;
 import com.example.bitcoinmarketrecorder.model.Trade;
 import com.example.bitcoinmarketrecorder.service.DataPersistenceService;
@@ -10,6 +11,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
+import java.math.BigDecimal;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
@@ -91,7 +93,6 @@ public class GmoWebSocketClient {
                             session
                                 .receive()
                                 .map(WebSocketMessage::getPayloadAsText)
-                                .doOnNext(msg -> logger.info("Raw message received: {}", msg))
                                 .publishOn(Schedulers.boundedElastic())
                                 .flatMap(this::handleMessage)
                                 .onErrorResume(
@@ -169,7 +170,7 @@ public class GmoWebSocketClient {
 
   private Mono<Void> handleMessage(String jsonPayload) {
     try {
-      logger.info("Processing GMO message: {}", jsonPayload);
+      // logger.info("Processing GMO message: {}", jsonPayload);
       JsonNode rootNode = objectMapper.readTree(jsonPayload);
 
       // チャンネルメッセージの処理
@@ -181,12 +182,12 @@ public class GmoWebSocketClient {
           // Single trade object
           GmoTradeRecord trade = objectMapper.convertValue(rootNode, GmoTradeRecord.class);
           Trade domainTrade = convertToDomainTrade(trade);
-          logger.info("Received GMO trade: {}", trade);
+          // logger.info("Received GMO trade: {}", trade);
           persistenceService.saveTrades(List.of(domainTrade));
         } else if (CHANNEL_ORDERBOOK.equals(channel)) {
           GmoOrderbook orderbook = objectMapper.convertValue(rootNode, GmoOrderbook.class);
           MarketBoard marketBoard = convertToDomainMarketBoard(orderbook);
-          logger.info("Received GMO MarketBoard for symbol: {}", orderbook.getSymbol());
+          // logger.info("Received GMO MarketBoard for symbol: {}", orderbook.getSymbol());
           persistenceService.saveMarketBoard(marketBoard);
         } else {
           logger.debug("Received unhandled channel message: {}", channel);
@@ -232,8 +233,8 @@ public class GmoWebSocketClient {
   private Trade convertToDomainTrade(GmoTradeRecord gmoTrade) {
     Trade trade = new Trade();
     trade.setExchange("GMO");
-    // シンボル名を統一
-    trade.setSymbol(gmoTrade.getSymbol().equals("BTC") ? "BTC_JPY" : gmoTrade.getSymbol());
+    // シンボルをそのまま使用
+    trade.setSymbol(gmoTrade.getSymbol());
     // executionIdがnullの場合は現在時刻を使用
     String executionId = gmoTrade.getExecutionId();
     if (executionId == null || executionId.isEmpty()) {
@@ -256,22 +257,35 @@ public class GmoWebSocketClient {
     return trade;
   }
 
-  private MarketBoard convertToDomainMarketBoard(GmoOrderbook gmoOrderbook) {
+  private MarketBoard convertToDomainMarketBoard(GmoOrderbook orderbook) {
     MarketBoard board = new MarketBoard();
     board.setExchange("GMO");
-    board.setSymbol(gmoOrderbook.getSymbol());
+    // シンボルをそのまま使用
+    board.setSymbol(orderbook.getSymbol());
     try {
       board.setTs(
-          ZonedDateTime.parse(gmoOrderbook.getTimestamp(), DateTimeFormatter.ISO_DATE_TIME)
+          ZonedDateTime.parse(orderbook.getTimestamp(), DateTimeFormatter.ISO_DATE_TIME)
               .toInstant());
     } catch (Exception e) {
-      logger.warn("Failed to parse GMO timestamp: {}", gmoOrderbook.getTimestamp(), e);
+      logger.warn("Failed to parse GMO timestamp: {}", orderbook.getTimestamp(), e);
       board.setTs(Instant.now()); // Fallback
     }
 
     // Map top 8 bids/asks
-    mapPriceLevels(gmoOrderbook.getBids(), board, true);
-    mapPriceLevels(gmoOrderbook.getAsks(), board, false);
+    mapPriceLevels(orderbook.getBids(), board, true);
+    mapPriceLevels(orderbook.getAsks(), board, false);
+
+    // BestBidAskの生成と保存
+    BestBidAsk bestBidAsk = new BestBidAsk();
+    bestBidAsk.setExchange("GMO");
+    // シンボルをそのまま使用
+    bestBidAsk.setSymbol(orderbook.getSymbol());
+    bestBidAsk.setBestBid(orderbook.getBids().get(0).getPrice());
+    bestBidAsk.setBestBidVolume(BigDecimal.ZERO); // GMOではVolumeが取れないため0.0
+    bestBidAsk.setBestAsk(orderbook.getAsks().get(0).getPrice());
+    bestBidAsk.setBestAskVolume(BigDecimal.ZERO); // GMOではVolumeが取れないため0.0
+    bestBidAsk.setTimestamp(Instant.now());
+    persistenceService.saveBestBidAsk(bestBidAsk);
 
     return board;
   }

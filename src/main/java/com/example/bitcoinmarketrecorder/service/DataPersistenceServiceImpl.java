@@ -1,5 +1,6 @@
 package com.example.bitcoinmarketrecorder.service;
 
+import com.example.bitcoinmarketrecorder.model.BestBidAsk;
 import com.example.bitcoinmarketrecorder.model.MarketBoard;
 import com.example.bitcoinmarketrecorder.model.Trade;
 import jakarta.annotation.PostConstruct;
@@ -32,6 +33,7 @@ public class DataPersistenceServiceImpl implements DataPersistenceService {
   private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd");
   private final BlockingQueue<Trade> tradeQueue;
   private final BlockingQueue<MarketBoard> boardQueue;
+  private final BlockingQueue<BestBidAsk> bestBidAskQueue;
   private final ExecutorService workerExecutor;
   private volatile boolean isRunning = true;
 
@@ -41,6 +43,7 @@ public class DataPersistenceServiceImpl implements DataPersistenceService {
   public DataPersistenceServiceImpl() {
     this.tradeQueue = new LinkedBlockingQueue<>();
     this.boardQueue = new LinkedBlockingQueue<>();
+    this.bestBidAskQueue = new LinkedBlockingQueue<>();
     this.workerExecutor = Executors.newSingleThreadExecutor();
   }
 
@@ -52,12 +55,14 @@ public class DataPersistenceServiceImpl implements DataPersistenceService {
   private void startWorker() {
     workerExecutor.submit(
         () -> {
+          logger.info("Starting data persistence worker thread");
           while (isRunning) {
             try {
               // Process trades
               List<Trade> trades = new ArrayList<>();
               tradeQueue.drainTo(trades, 100); // 最大100件までバッチ処理
               if (!trades.isEmpty()) {
+                logger.info("Processing {} trades from queue", trades.size());
                 saveTradesToCsv(trades);
               }
 
@@ -65,27 +70,48 @@ public class DataPersistenceServiceImpl implements DataPersistenceService {
               List<MarketBoard> boards = new ArrayList<>();
               boardQueue.drainTo(boards, 100);
               if (!boards.isEmpty()) {
+                logger.info("Processing {} market boards from queue", boards.size());
                 saveMarketBoardsToCsv(boards);
               }
 
+              // Process best bid/ask
+              List<BestBidAsk> bestBidAsks = new ArrayList<>();
+              bestBidAskQueue.drainTo(bestBidAsks, 100);
+              if (!bestBidAsks.isEmpty()) {
+                logger.info("Processing {} best bid/ask records from queue", bestBidAsks.size());
+                saveBestBidAskToCsv(bestBidAsks);
+              }
+
               // キューが空の場合は少し待機
-              if (trades.isEmpty() && boards.isEmpty()) {
+              if (trades.isEmpty() && boards.isEmpty() && bestBidAsks.isEmpty()) {
                 Thread.sleep(100);
               }
             } catch (InterruptedException e) {
+              logger.warn("Worker thread interrupted", e);
               Thread.currentThread().interrupt();
               break;
             } catch (Exception e) {
               logger.error("Error in worker thread: {}", e.getMessage(), e);
+              // エラーが発生してもワーカースレッドは継続
+              try {
+                Thread.sleep(1000); // エラー発生時は少し長めに待機
+              } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                break;
+              }
             }
           }
+          logger.info("Data persistence worker thread stopped");
         });
   }
 
   @Override
   public void saveTrades(List<Trade> trades) {
     try {
-      tradeQueue.addAll(trades);
+      if (trades != null && !trades.isEmpty()) {
+        logger.debug("Adding {} trades to queue", trades.size());
+        tradeQueue.addAll(trades);
+      }
     } catch (Exception e) {
       logger.error("Error adding trades to queue: {}", e.getMessage(), e);
     }
@@ -94,9 +120,24 @@ public class DataPersistenceServiceImpl implements DataPersistenceService {
   @Override
   public void saveMarketBoard(MarketBoard board) {
     try {
-      boardQueue.add(board);
+      if (board != null) {
+        logger.debug("Adding market board to queue for symbol: {}", board.getSymbol());
+        boardQueue.add(board);
+      }
     } catch (Exception e) {
       logger.error("Error adding market board to queue: {}", e.getMessage(), e);
+    }
+  }
+
+  @Override
+  public void saveBestBidAsk(BestBidAsk bestBidAsk) {
+    try {
+      if (bestBidAsk != null) {
+        logger.debug("Adding best bid/ask to queue for symbol: {}", bestBidAsk.getSymbol());
+        bestBidAskQueue.add(bestBidAsk);
+      }
+    } catch (Exception e) {
+      logger.error("Error adding best bid/ask to queue: {}", e.getMessage(), e);
     }
   }
 
@@ -118,7 +159,8 @@ public class DataPersistenceServiceImpl implements DataPersistenceService {
 
       // データをCSVに追記
       try (BufferedWriter writer =
-          Files.newBufferedWriter(tradesCsvFile, StandardOpenOption.APPEND)) {
+          Files.newBufferedWriter(
+              tradesCsvFile, StandardOpenOption.APPEND, StandardOpenOption.CREATE)) {
         for (Trade trade : trades) {
           writer.write(
               String.format(
@@ -133,7 +175,9 @@ public class DataPersistenceServiceImpl implements DataPersistenceService {
                   trade.getCreatedAt()));
           writer.newLine();
         }
+        writer.flush(); // 明示的にフラッシュ
       }
+      logger.info("Saved {} trades to {}", trades.size(), tradesCsvFile);
     } catch (IOException e) {
       logger.error("Error saving trades to CSV: {}", e.getMessage(), e);
     }
@@ -157,7 +201,8 @@ public class DataPersistenceServiceImpl implements DataPersistenceService {
 
       // データをCSVに追記
       try (BufferedWriter writer =
-          Files.newBufferedWriter(marketBoardsCsvFile, StandardOpenOption.APPEND)) {
+          Files.newBufferedWriter(
+              marketBoardsCsvFile, StandardOpenOption.APPEND, StandardOpenOption.CREATE)) {
         for (MarketBoard board : boards) {
           String format =
               "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s";
@@ -231,9 +276,48 @@ public class DataPersistenceServiceImpl implements DataPersistenceService {
           writer.write(String.format(format, args));
           writer.newLine();
         }
+        writer.flush(); // 明示的にフラッシュ
       }
+      logger.info("Saved {} market boards to {}", boards.size(), marketBoardsCsvFile);
     } catch (IOException e) {
       logger.error("Error saving market boards to CSV: {}", e.getMessage(), e);
+    }
+  }
+
+  private void saveBestBidAskToCsv(List<BestBidAsk> bestBidAsks) {
+    try {
+      LocalDateTime now = LocalDateTime.now();
+      String dateStr = now.format(DATE_FORMATTER);
+      String hourStr = String.format("%02d", now.getHour());
+
+      String bestBidAskCsvName = String.format("best_bid_ask_%s_%s.csv", dateStr, hourStr);
+      Path bestBidAskCsvFile = Paths.get(csvDir).resolve(bestBidAskCsvName);
+
+      if (!Files.exists(bestBidAskCsvFile)) {
+        writeBestBidAskCsvHeaders(bestBidAskCsvFile);
+      }
+
+      try (BufferedWriter writer =
+          Files.newBufferedWriter(
+              bestBidAskCsvFile, StandardOpenOption.APPEND, StandardOpenOption.CREATE)) {
+        for (BestBidAsk bestBidAsk : bestBidAsks) {
+          writer.write(
+              String.format(
+                  "%s,%s,%s,%s,%s,%s,%s",
+                  bestBidAsk.getExchange(),
+                  bestBidAsk.getSymbol(),
+                  bestBidAsk.getBestBid().setScale(0, RoundingMode.HALF_UP),
+                  bestBidAsk.getBestBidVolume().setScale(8, RoundingMode.HALF_UP),
+                  bestBidAsk.getBestAsk().setScale(0, RoundingMode.HALF_UP),
+                  bestBidAsk.getBestAskVolume().setScale(8, RoundingMode.HALF_UP),
+                  bestBidAsk.getTimestamp()));
+          writer.newLine();
+        }
+        writer.flush();
+      }
+      logger.info("Saved {} best bid/ask records to {}", bestBidAsks.size(), bestBidAskCsvFile);
+    } catch (IOException e) {
+      logger.error("Error saving best bid/ask to CSV: {}", e.getMessage(), e);
     }
   }
 
@@ -256,6 +340,13 @@ public class DataPersistenceServiceImpl implements DataPersistenceService {
                 + "ask5,ask5vol,ask6,ask6vol,ask7,ask7vol,ask8,ask8vol");
         writer.newLine();
       }
+    }
+  }
+
+  private void writeBestBidAskCsvHeaders(Path bestBidAskCsvFile) throws IOException {
+    try (BufferedWriter writer = Files.newBufferedWriter(bestBidAskCsvFile)) {
+      writer.write("exchange,symbol,best_bid,best_bid_volume,best_ask,best_ask_volume,timestamp");
+      writer.newLine();
     }
   }
 

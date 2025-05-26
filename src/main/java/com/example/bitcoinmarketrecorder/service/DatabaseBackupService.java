@@ -34,7 +34,7 @@ public class DatabaseBackupService {
     logger.info("Manual backup completed");
   }
 
-  @Scheduled(cron = "0 0 * * * ?") // 毎時0分に実行
+  @Scheduled(cron = "0 0 0 * * ?") // 毎日0時に実行するように変更
   public void backupAndCleanup() {
     if (!backupLock.tryLock()) {
       logger.warn("Another backup operation is in progress, skipping this backup");
@@ -59,9 +59,15 @@ public class DatabaseBackupService {
       Path tradesCsvFile = csvPath.resolve(tradesCsvName);
       Path marketBoardsCsvFile = csvPath.resolve(marketBoardsCsvName);
 
-      // CSVファイルのヘッダーを書き込み
-      writeCsvHeaders(tradesCsvFile, marketBoardsCsvFile);
-      logger.info("CSV files created with headers: {} and {}", tradesCsvFile, marketBoardsCsvFile);
+      // ファイルが存在しない場合のみヘッダーを書き込む
+      if (!Files.exists(tradesCsvFile)) {
+        writeCsvHeaders(tradesCsvFile, null);
+      }
+      if (!Files.exists(marketBoardsCsvFile)) {
+        writeCsvHeaders(null, marketBoardsCsvFile);
+      }
+
+      logger.info("CSV files checked/created: {} and {}", tradesCsvFile, marketBoardsCsvFile);
 
     } catch (IOException e) {
       logger.error("Error during backup and cleanup: {}", e.getMessage(), e);

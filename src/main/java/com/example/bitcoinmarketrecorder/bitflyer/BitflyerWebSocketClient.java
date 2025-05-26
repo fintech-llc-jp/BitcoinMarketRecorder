@@ -2,6 +2,7 @@ package com.example.bitcoinmarketrecorder.bitflyer;
 
 import com.example.bitcoinmarketrecorder.bitflyer.model.BitflyerBoard;
 import com.example.bitcoinmarketrecorder.bitflyer.model.BitflyerExecution;
+import com.example.bitcoinmarketrecorder.model.BestBidAsk;
 import com.example.bitcoinmarketrecorder.model.MarketBoard;
 import com.example.bitcoinmarketrecorder.model.Trade;
 import com.example.bitcoinmarketrecorder.service.DataPersistenceService;
@@ -221,20 +222,30 @@ public class BitflyerWebSocketClient {
     return trade;
   }
 
-  private MarketBoard convertToDomainMarketBoard(
-      BitflyerBoard bitflyerBoard, String bitflyerSymbol) {
-    MarketBoard board = new MarketBoard();
-    board.setExchange("BITFLYER");
-    board.setSymbol(bitflyerSymbol);
-    board.setTs(
+  private MarketBoard convertToDomainMarketBoard(BitflyerBoard board, String symbol) {
+    MarketBoard marketBoard = new MarketBoard();
+    marketBoard.setExchange("BITFLYER");
+    marketBoard.setSymbol(symbol);
+    marketBoard.setTs(
         Instant.now()); // Bitflyer board snapshot doesn't have a specific timestamp in the message
     // itself
 
     // Map top 8 bids/asks
-    mapPriceLevels(bitflyerBoard.getBids(), board, true);
-    mapPriceLevels(bitflyerBoard.getAsks(), board, false);
+    mapPriceLevels(board.getBids(), marketBoard, true);
+    mapPriceLevels(board.getAsks(), marketBoard, false);
 
-    return board;
+    // BestBidAskの生成と保存
+    BestBidAsk bestBidAsk = new BestBidAsk();
+    bestBidAsk.setExchange("BITFLYER");
+    bestBidAsk.setSymbol(symbol);
+    bestBidAsk.setBestBid(board.getBids().get(0).getPrice());
+    bestBidAsk.setBestBidVolume(board.getBids().get(0).getSize());
+    bestBidAsk.setBestAsk(board.getAsks().get(0).getPrice());
+    bestBidAsk.setBestAskVolume(board.getAsks().get(0).getSize());
+    bestBidAsk.setTimestamp(Instant.now());
+    persistenceService.saveBestBidAsk(bestBidAsk);
+
+    return marketBoard;
   }
 
   private void mapPriceLevels(
