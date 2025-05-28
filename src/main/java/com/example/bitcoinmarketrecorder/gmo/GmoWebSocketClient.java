@@ -258,22 +258,20 @@ public class GmoWebSocketClient {
   }
 
   private MarketBoard convertToDomainMarketBoard(GmoOrderbook orderbook) {
-    MarketBoard board = new MarketBoard();
-    board.setExchange("GMO");
-    // シンボルをそのまま使用
-    board.setSymbol(orderbook.getSymbol());
-    try {
-      board.setTs(
-          ZonedDateTime.parse(orderbook.getTimestamp(), DateTimeFormatter.ISO_DATE_TIME)
-              .toInstant());
-    } catch (Exception e) {
-      logger.warn("Failed to parse GMO timestamp: {}", orderbook.getTimestamp(), e);
-      board.setTs(Instant.now()); // Fallback
+    MarketBoard marketBoard = new MarketBoard();
+    marketBoard.setExchange("GMO");
+    marketBoard.setSymbol(orderbook.getSymbol());
+    marketBoard.setTs(Instant.now());
+
+    // Convert bids
+    for (GmoOrderbook.PriceLevel level : orderbook.getBids()) {
+      marketBoard.getBids().add(new MarketBoard.PriceLevel(level.getPrice(), level.getSize()));
     }
 
-    // Map top 8 bids/asks
-    mapPriceLevels(orderbook.getBids(), board, true);
-    mapPriceLevels(orderbook.getAsks(), board, false);
+    // Convert asks
+    for (GmoOrderbook.PriceLevel level : orderbook.getAsks()) {
+      marketBoard.getAsks().add(new MarketBoard.PriceLevel(level.getPrice(), level.getSize()));
+    }
 
     // BestBidAskの生成と保存
     BestBidAsk bestBidAsk = new BestBidAsk();
@@ -287,90 +285,6 @@ public class GmoWebSocketClient {
     bestBidAsk.setTimestamp(Instant.now());
     persistenceService.saveBestBidAsk(bestBidAsk);
 
-    return board;
-  }
-
-  private void mapPriceLevels(
-      List<GmoOrderbook.PriceLevel> levels, MarketBoard board, boolean isBid) {
-    if (levels == null) return;
-    for (int i = 0; i < Math.min(levels.size(), 8); i++) {
-      GmoOrderbook.PriceLevel level = levels.get(i);
-      if (level == null || level.getPrice() == null || level.getSize() == null) continue;
-
-      switch (i) {
-        case 0:
-          if (isBid) {
-            board.setBid1(level.getPrice());
-            board.setBid1vol(level.getSize());
-          } else {
-            board.setAsk1(level.getPrice());
-            board.setAsk1vol(level.getSize());
-          }
-          break;
-        case 1:
-          if (isBid) {
-            board.setBid2(level.getPrice());
-            board.setBid2vol(level.getSize());
-          } else {
-            board.setAsk2(level.getPrice());
-            board.setAsk2vol(level.getSize());
-          }
-          break;
-        case 2:
-          if (isBid) {
-            board.setBid3(level.getPrice());
-            board.setBid3vol(level.getSize());
-          } else {
-            board.setAsk3(level.getPrice());
-            board.setAsk3vol(level.getSize());
-          }
-          break;
-        case 3:
-          if (isBid) {
-            board.setBid4(level.getPrice());
-            board.setBid4vol(level.getSize());
-          } else {
-            board.setAsk4(level.getPrice());
-            board.setAsk4vol(level.getSize());
-          }
-          break;
-        case 4:
-          if (isBid) {
-            board.setBid5(level.getPrice());
-            board.setBid5vol(level.getSize());
-          } else {
-            board.setAsk5(level.getPrice());
-            board.setAsk5vol(level.getSize());
-          }
-          break;
-        case 5:
-          if (isBid) {
-            board.setBid6(level.getPrice());
-            board.setBid6vol(level.getSize());
-          } else {
-            board.setAsk6(level.getPrice());
-            board.setAsk6vol(level.getSize());
-          }
-          break;
-        case 6:
-          if (isBid) {
-            board.setBid7(level.getPrice());
-            board.setBid7vol(level.getSize());
-          } else {
-            board.setAsk7(level.getPrice());
-            board.setAsk7vol(level.getSize());
-          }
-          break;
-        case 7:
-          if (isBid) {
-            board.setBid8(level.getPrice());
-            board.setBid8vol(level.getSize());
-          } else {
-            board.setAsk8(level.getPrice());
-            board.setAsk8vol(level.getSize());
-          }
-          break;
-      }
-    }
+    return marketBoard;
   }
 }

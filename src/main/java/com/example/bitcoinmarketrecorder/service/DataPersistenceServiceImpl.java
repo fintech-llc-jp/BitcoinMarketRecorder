@@ -204,76 +204,8 @@ public class DataPersistenceServiceImpl implements DataPersistenceService {
           Files.newBufferedWriter(
               marketBoardsCsvFile, StandardOpenOption.APPEND, StandardOpenOption.CREATE)) {
         for (MarketBoard board : boards) {
-          String format =
-              "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s";
-          Object[] args =
-              new Object[] {
-                board.getExchange(),
-                board.getSymbol(),
-                board.getTs(),
-                board.getBid1() != null ? board.getBid1().setScale(0, RoundingMode.HALF_UP) : "",
-                board.getBid1vol() != null
-                    ? board.getBid1vol().setScale(8, RoundingMode.HALF_UP)
-                    : "",
-                board.getBid2() != null ? board.getBid2().setScale(0, RoundingMode.HALF_UP) : "",
-                board.getBid2vol() != null
-                    ? board.getBid2vol().setScale(8, RoundingMode.HALF_UP)
-                    : "",
-                board.getBid3() != null ? board.getBid3().setScale(0, RoundingMode.HALF_UP) : "",
-                board.getBid3vol() != null
-                    ? board.getBid3vol().setScale(8, RoundingMode.HALF_UP)
-                    : "",
-                board.getBid4() != null ? board.getBid4().setScale(0, RoundingMode.HALF_UP) : "",
-                board.getBid4vol() != null
-                    ? board.getBid4vol().setScale(8, RoundingMode.HALF_UP)
-                    : "",
-                board.getBid5() != null ? board.getBid5().setScale(0, RoundingMode.HALF_UP) : "",
-                board.getBid5vol() != null
-                    ? board.getBid5vol().setScale(8, RoundingMode.HALF_UP)
-                    : "",
-                board.getBid6() != null ? board.getBid6().setScale(0, RoundingMode.HALF_UP) : "",
-                board.getBid6vol() != null
-                    ? board.getBid6vol().setScale(8, RoundingMode.HALF_UP)
-                    : "",
-                board.getBid7() != null ? board.getBid7().setScale(0, RoundingMode.HALF_UP) : "",
-                board.getBid7vol() != null
-                    ? board.getBid7vol().setScale(8, RoundingMode.HALF_UP)
-                    : "",
-                board.getBid8() != null ? board.getBid8().setScale(0, RoundingMode.HALF_UP) : "",
-                board.getBid8vol() != null
-                    ? board.getBid8vol().setScale(8, RoundingMode.HALF_UP)
-                    : "",
-                board.getAsk1() != null ? board.getAsk1().setScale(0, RoundingMode.HALF_UP) : "",
-                board.getAsk1vol() != null
-                    ? board.getAsk1vol().setScale(8, RoundingMode.HALF_UP)
-                    : "",
-                board.getAsk2() != null ? board.getAsk2().setScale(0, RoundingMode.HALF_UP) : "",
-                board.getAsk2vol() != null
-                    ? board.getAsk2vol().setScale(8, RoundingMode.HALF_UP)
-                    : "",
-                board.getAsk3() != null ? board.getAsk3().setScale(0, RoundingMode.HALF_UP) : "",
-                board.getAsk3vol() != null
-                    ? board.getAsk3vol().setScale(8, RoundingMode.HALF_UP)
-                    : "",
-                board.getAsk4() != null ? board.getAsk4().setScale(0, RoundingMode.HALF_UP) : "",
-                board.getAsk4vol() != null
-                    ? board.getAsk4vol().setScale(8, RoundingMode.HALF_UP)
-                    : "",
-                board.getAsk5() != null ? board.getAsk5().setScale(0, RoundingMode.HALF_UP) : "",
-                board.getAsk5vol() != null
-                    ? board.getAsk5vol().setScale(8, RoundingMode.HALF_UP)
-                    : "",
-                board.getAsk6() != null ? board.getAsk6().setScale(0, RoundingMode.HALF_UP) : "",
-                board.getAsk6vol() != null
-                    ? board.getAsk6vol().setScale(8, RoundingMode.HALF_UP)
-                    : "",
-                board.getAsk7() != null ? board.getAsk7().setScale(0, RoundingMode.HALF_UP) : "",
-                board.getAsk7vol() != null
-                    ? board.getAsk7vol().setScale(8, RoundingMode.HALF_UP)
-                    : "",
-                board.getAsk8() != null ? board.getAsk8().setScale(0, RoundingMode.HALF_UP) : ""
-              };
-          writer.write(String.format(format, args));
+          String[] csvRow = convertMarketBoardToCsvRow(board);
+          writer.write(String.join(",", csvRow));
           writer.newLine();
         }
         writer.flush(); // 明示的にフラッシュ
@@ -282,6 +214,43 @@ public class DataPersistenceServiceImpl implements DataPersistenceService {
     } catch (IOException e) {
       logger.error("Error saving market boards to CSV: {}", e.getMessage(), e);
     }
+  }
+
+  private String[] convertMarketBoardToCsvRow(MarketBoard board) {
+    return new String[] {
+      board.getExchange(),
+      board.getSymbol(),
+      board.getTs().toString(),
+      // Get top 8 bids
+      getPriceLevelString(board.getBids(), 0),
+      getPriceLevelString(board.getBids(), 1),
+      getPriceLevelString(board.getBids(), 2),
+      getPriceLevelString(board.getBids(), 3),
+      getPriceLevelString(board.getBids(), 4),
+      getPriceLevelString(board.getBids(), 5),
+      getPriceLevelString(board.getBids(), 6),
+      getPriceLevelString(board.getBids(), 7),
+      // Get top 8 asks
+      getPriceLevelString(board.getAsks(), 0),
+      getPriceLevelString(board.getAsks(), 1),
+      getPriceLevelString(board.getAsks(), 2),
+      getPriceLevelString(board.getAsks(), 3),
+      getPriceLevelString(board.getAsks(), 4),
+      getPriceLevelString(board.getAsks(), 5),
+      getPriceLevelString(board.getAsks(), 6),
+      getPriceLevelString(board.getAsks(), 7)
+    };
+  }
+
+  private String getPriceLevelString(List<MarketBoard.PriceLevel> levels, int index) {
+    if (levels == null || index >= levels.size()) {
+      return "";
+    }
+    MarketBoard.PriceLevel level = levels.get(index);
+    if (level == null || level.getPrice() == null) {
+      return "";
+    }
+    return level.getPrice().setScale(0, RoundingMode.HALF_UP).toString();
   }
 
   private void saveBestBidAskToCsv(List<BestBidAsk> bestBidAsks) {

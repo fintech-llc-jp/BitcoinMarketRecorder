@@ -12,6 +12,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
+import java.math.BigDecimal;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
@@ -21,6 +22,7 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -48,15 +50,19 @@ public class BitflyerWebSocketClient {
   private final ObjectMapper objectMapper = new ObjectMapper();
   private final DataPersistenceService persistenceService;
   private Disposable connectionDisposable;
-  private final AtomicLong jsonRpcId = new AtomicLong(1); // For unique JSON-RPC request IDs
+  private final AtomicLong jsonRpcId = new AtomicLong(1);
 
   // Symbols defined in README.md (Bitflyer versions)
-  private static final String SYMBOL_BTC_SPOT = "BTC_JPY"; // 現物
-  private static final String SYMBOL_BTC_FX = "FX_BTC_JPY"; // CFD (FX)
+  private static final String SYMBOL_BTC_SPOT = "BTC_JPY";
+  private static final String SYMBOL_BTC_FX = "FX_BTC_JPY";
 
   // Bitflyer channel names
-  private static final String CHANNEL_BOARD_PREFIX = "lightning_board_snapshot_";
+  private static final String CHANNEL_BOARD_SNAPSHOT_PREFIX = "lightning_board_snapshot_";
+  private static final String CHANNEL_BOARD_DELTA_PREFIX = "lightning_board_";
   private static final String CHANNEL_EXECUTIONS_PREFIX = "lightning_executions_";
+
+  // Store the latest market board data for each symbol
+  private final Map<String, MarketBoard> latestBoards = new ConcurrentHashMap<>();
 
   @Autowired
   public BitflyerWebSocketClient(DataPersistenceService persistenceService) {
@@ -76,14 +82,23 @@ public class BitflyerWebSocketClient {
                     // Create Flux of subscription messages with delays
                     Flux<WebSocketMessage> subscriptionMessages =
                         Flux.concat(
+                            // Subscribe to board snapshots first
                             createSubscriptionMessageMono(
-                                    session, CHANNEL_BOARD_PREFIX + SYMBOL_BTC_SPOT)
+                                    session, CHANNEL_BOARD_SNAPSHOT_PREFIX + SYMBOL_BTC_SPOT)
                                 .delayElement(Duration.ofSeconds(1)),
+                            createSubscriptionMessageMono(
+                                    session, CHANNEL_BOARD_SNAPSHOT_PREFIX + SYMBOL_BTC_FX)
+                                .delayElement(Duration.ofSeconds(1)),
+                            // Then subscribe to board deltas
+                            createSubscriptionMessageMono(
+                                    session, CHANNEL_BOARD_DELTA_PREFIX + SYMBOL_BTC_SPOT)
+                                .delayElement(Duration.ofSeconds(1)),
+                            createSubscriptionMessageMono(
+                                    session, CHANNEL_BOARD_DELTA_PREFIX + SYMBOL_BTC_FX)
+                                .delayElement(Duration.ofSeconds(1)),
+                            // Finally subscribe to executions
                             createSubscriptionMessageMono(
                                     session, CHANNEL_EXECUTIONS_PREFIX + SYMBOL_BTC_SPOT)
-                                .delayElement(Duration.ofSeconds(1)),
-                            createSubscriptionMessageMono(
-                                    session, CHANNEL_BOARD_PREFIX + SYMBOL_BTC_FX)
                                 .delayElement(Duration.ofSeconds(1)),
                             createSubscriptionMessageMono(
                                     session, CHANNEL_EXECUTIONS_PREFIX + SYMBOL_BTC_FX)
@@ -96,8 +111,7 @@ public class BitflyerWebSocketClient {
                             session
                                 .receive()
                                 .map(WebSocketMessage::getPayloadAsText)
-                                .publishOn(
-                                    Schedulers.boundedElastic()) // Process on separate thread
+                                .publishOn(Schedulers.boundedElastic())
                                 .flatMap(this::handleMessage)
                                 .onErrorResume(
                                     e -> {
@@ -105,9 +119,9 @@ public class BitflyerWebSocketClient {
                                           "Error processing Bitflyer WebSocket message: {}",
                                           e.getMessage(),
                                           e);
-                                      return Mono.empty(); // Continue processing
+                                      return Mono.empty();
                                     }))
-                        .then(); // Complete Mono<Void> when receiving completes
+                        .then();
                   })
               .retryWhen(
                   Retry.backoff(Long.MAX_VALUE, Duration.ofSeconds(5))
@@ -118,7 +132,7 @@ public class BitflyerWebSocketClient {
               .doFinally(
                   signalType -> logger.warn("Bitflyer WebSocket connection closed: {}", signalType))
               .subscribe(
-                  null, // onNext not needed
+                  null,
                   error ->
                       logger.error(
                           "Bitflyer WebSocket connection failed permanently: {}",
@@ -149,7 +163,6 @@ public class BitflyerWebSocketClient {
               "id",
               jsonRpcId.getAndIncrement());
       String jsonMessage = objectMapper.writeValueAsString(messageMap);
-      // Return a Mono containing the message to be sent
       return Mono.just(session.textMessage(jsonMessage));
     } catch (JsonProcessingException e) {
       logger.error(
@@ -161,26 +174,17 @@ public class BitflyerWebSocketClient {
   private Mono<Void> handleMessage(String jsonPayload) {
     try {
       JsonNode rootNode = objectMapper.readTree(jsonPayload);
-      // Check if it's a notification message (has "method" and "params")
       if (rootNode.has("method") && "channelMessage".equals(rootNode.get("method").asText())) {
         JsonNode params = rootNode.get("params");
         String channel = params.get("channel").asText();
         JsonNode message = params.get("message");
 
         if (channel.startsWith(CHANNEL_EXECUTIONS_PREFIX)) {
-          String symbol = channel.substring(CHANNEL_EXECUTIONS_PREFIX.length());
-          // Execution messages are arrays
-          List<BitflyerExecution> executions =
-              objectMapper.convertValue(message, new TypeReference<List<BitflyerExecution>>() {});
-          List<Trade> trades =
-              executions.stream().map(exec -> convertToDomainTrade(exec, symbol)).toList();
-          persistenceService.saveTrades(trades);
-        } else if (channel.startsWith(CHANNEL_BOARD_PREFIX)) {
-          String symbol = channel.substring(CHANNEL_BOARD_PREFIX.length());
-          BitflyerBoard board = objectMapper.convertValue(message, BitflyerBoard.class);
-          MarketBoard marketBoard = convertToDomainMarketBoard(board, symbol);
-          logger.debug("Received Bitflyer MarketBoard for {}: {}", symbol, marketBoard);
-          persistenceService.saveMarketBoard(marketBoard);
+          handleExecutionsMessage(channel, message);
+        } else if (channel.startsWith(CHANNEL_BOARD_SNAPSHOT_PREFIX)) {
+          handleBoardSnapshotMessage(channel, message);
+        } else if (channel.startsWith(CHANNEL_BOARD_DELTA_PREFIX)) {
+          handleBoardDeltaMessage(channel, message);
         } else {
           logger.debug("Received unhandled channel message: {}", channel);
         }
@@ -199,26 +203,129 @@ public class BitflyerWebSocketClient {
     return Mono.empty();
   }
 
+  private void handleExecutionsMessage(String channel, JsonNode message)
+      throws JsonProcessingException {
+    String symbol = channel.substring(CHANNEL_EXECUTIONS_PREFIX.length());
+    List<BitflyerExecution> executions =
+        objectMapper.convertValue(message, new TypeReference<List<BitflyerExecution>>() {});
+    List<Trade> trades =
+        executions.stream().map(exec -> convertToDomainTrade(exec, symbol)).toList();
+    persistenceService.saveTrades(trades);
+  }
+
+  private void handleBoardSnapshotMessage(String channel, JsonNode message)
+      throws JsonProcessingException {
+    String symbol = channel.substring(CHANNEL_BOARD_SNAPSHOT_PREFIX.length());
+    BitflyerBoard board = objectMapper.convertValue(message, BitflyerBoard.class);
+    MarketBoard marketBoard = convertToDomainMarketBoard(board, symbol);
+    latestBoards.put(symbol, marketBoard);
+    persistenceService.saveMarketBoard(marketBoard);
+    updateBestBidAsk(marketBoard);
+  }
+
+  private void handleBoardDeltaMessage(String channel, JsonNode message)
+      throws JsonProcessingException {
+    String symbol = channel.substring(CHANNEL_BOARD_DELTA_PREFIX.length());
+    BitflyerBoard deltaBoard = objectMapper.convertValue(message, BitflyerBoard.class);
+
+    // Get the latest board or create a new one if not exists
+    MarketBoard latestBoard =
+        latestBoards.computeIfAbsent(
+            symbol,
+            k -> {
+              MarketBoard newBoard = new MarketBoard();
+              newBoard.setExchange("BITFLYER");
+              newBoard.setSymbol(symbol);
+              return newBoard;
+            });
+
+    // Update the board with delta
+    updateBoardWithDelta(latestBoard, deltaBoard);
+    latestBoard.setTs(Instant.now());
+
+    persistenceService.saveMarketBoard(latestBoard);
+    updateBestBidAsk(latestBoard);
+  }
+
+  private void updateBoardWithDelta(MarketBoard board, BitflyerBoard delta) {
+    // Update bids
+    for (BitflyerBoard.PriceLevel level : delta.getBids()) {
+      if (level.getSize().compareTo(BigDecimal.ZERO) == 0) {
+        // Remove the price level if size is 0
+        board.getBids().removeIf(bid -> bid.getPrice().compareTo(level.getPrice()) == 0);
+      } else {
+        // Update or add the price level
+        boolean updated = false;
+        for (int i = 0; i < board.getBids().size(); i++) {
+          if (board.getBids().get(i).getPrice().compareTo(level.getPrice()) == 0) {
+            board.getBids().set(i, new MarketBoard.PriceLevel(level.getPrice(), level.getSize()));
+            updated = true;
+            break;
+          }
+        }
+        if (!updated) {
+          board.getBids().add(new MarketBoard.PriceLevel(level.getPrice(), level.getSize()));
+        }
+      }
+    }
+
+    // Update asks
+    for (BitflyerBoard.PriceLevel level : delta.getAsks()) {
+      if (level.getSize().compareTo(BigDecimal.ZERO) == 0) {
+        // Remove the price level if size is 0
+        board.getAsks().removeIf(ask -> ask.getPrice().compareTo(level.getPrice()) == 0);
+      } else {
+        // Update or add the price level
+        boolean updated = false;
+        for (int i = 0; i < board.getAsks().size(); i++) {
+          if (board.getAsks().get(i).getPrice().compareTo(level.getPrice()) == 0) {
+            board.getAsks().set(i, new MarketBoard.PriceLevel(level.getPrice(), level.getSize()));
+            updated = true;
+            break;
+          }
+        }
+        if (!updated) {
+          board.getAsks().add(new MarketBoard.PriceLevel(level.getPrice(), level.getSize()));
+        }
+      }
+    }
+
+    // Sort bids (descending) and asks (ascending)
+    board.getBids().sort((a, b) -> b.getPrice().compareTo(a.getPrice()));
+    board.getAsks().sort((a, b) -> a.getPrice().compareTo(b.getPrice()));
+  }
+
+  private void updateBestBidAsk(MarketBoard board) {
+    if (!board.getBids().isEmpty() && !board.getAsks().isEmpty()) {
+      BestBidAsk bestBidAsk = new BestBidAsk();
+      bestBidAsk.setExchange("BITFLYER");
+      bestBidAsk.setSymbol(board.getSymbol());
+      bestBidAsk.setBestBid(board.getBids().get(0).getPrice());
+      bestBidAsk.setBestBidVolume(board.getBids().get(0).getSize());
+      bestBidAsk.setBestAsk(board.getAsks().get(0).getPrice());
+      bestBidAsk.setBestAskVolume(board.getAsks().get(0).getSize());
+      bestBidAsk.setTimestamp(Instant.now());
+      persistenceService.saveBestBidAsk(bestBidAsk);
+    }
+  }
+
   private Trade convertToDomainTrade(BitflyerExecution exec, String bitflyerSymbol) {
     Trade trade = new Trade();
     trade.setExchange("BITFLYER");
-    // Bitflyer symbols already match the desired format
     trade.setSymbol(bitflyerSymbol);
-    trade.setTradeId("BITFLYER-" + exec.getId()); // Ensure unique ID
+    trade.setTradeId("BITFLYER-" + exec.getId());
     trade.setPrice(exec.getPrice());
     trade.setSize(exec.getSize());
     trade.setSide(exec.getSide());
     try {
-      // Parse Bitflyer timestamp string (ISO 8601 format with Z)
-      // Example: 2015-07-08T02:51:38.123Z - Use ZonedDateTime or OffsetDateTime
       Instant timestamp =
           ZonedDateTime.parse(exec.getExecDate(), DateTimeFormatter.ISO_DATE_TIME).toInstant();
       trade.setTimestamp(timestamp);
     } catch (Exception e) {
       logger.warn("Failed to parse Bitflyer timestamp: {}", exec.getExecDate(), e);
-      trade.setTimestamp(Instant.now()); // Fallback
+      trade.setTimestamp(Instant.now());
     }
-    trade.setCreatedAt(LocalDateTime.now(ZoneOffset.UTC)); // Record creation time
+    trade.setCreatedAt(LocalDateTime.now(ZoneOffset.UTC));
     return trade;
   }
 
@@ -226,109 +333,18 @@ public class BitflyerWebSocketClient {
     MarketBoard marketBoard = new MarketBoard();
     marketBoard.setExchange("BITFLYER");
     marketBoard.setSymbol(symbol);
-    marketBoard.setTs(
-        Instant.now()); // Bitflyer board snapshot doesn't have a specific timestamp in the message
-    // itself
+    marketBoard.setTs(Instant.now());
 
-    // Map top 8 bids/asks
-    mapPriceLevels(board.getBids(), marketBoard, true);
-    mapPriceLevels(board.getAsks(), marketBoard, false);
+    // Convert bids
+    for (BitflyerBoard.PriceLevel level : board.getBids()) {
+      marketBoard.getBids().add(new MarketBoard.PriceLevel(level.getPrice(), level.getSize()));
+    }
 
-    // BestBidAskの生成と保存
-    BestBidAsk bestBidAsk = new BestBidAsk();
-    bestBidAsk.setExchange("BITFLYER");
-    bestBidAsk.setSymbol(symbol);
-    bestBidAsk.setBestBid(board.getBids().get(0).getPrice());
-    bestBidAsk.setBestBidVolume(board.getBids().get(0).getSize());
-    bestBidAsk.setBestAsk(board.getAsks().get(0).getPrice());
-    bestBidAsk.setBestAskVolume(board.getAsks().get(0).getSize());
-    bestBidAsk.setTimestamp(Instant.now());
-    persistenceService.saveBestBidAsk(bestBidAsk);
+    // Convert asks
+    for (BitflyerBoard.PriceLevel level : board.getAsks()) {
+      marketBoard.getAsks().add(new MarketBoard.PriceLevel(level.getPrice(), level.getSize()));
+    }
 
     return marketBoard;
-  }
-
-  private void mapPriceLevels(
-      List<BitflyerBoard.PriceLevel> levels, MarketBoard board, boolean isBid) {
-    if (levels == null) return;
-    for (int i = 0; i < Math.min(levels.size(), 8); i++) {
-      BitflyerBoard.PriceLevel level = levels.get(i);
-      if (level == null || level.getPrice() == null || level.getSize() == null) continue;
-
-      switch (i) {
-        case 0:
-          if (isBid) {
-            board.setBid1(level.getPrice());
-            board.setBid1vol(level.getSize());
-          } else {
-            board.setAsk1(level.getPrice());
-            board.setAsk1vol(level.getSize());
-          }
-          break;
-        case 1:
-          if (isBid) {
-            board.setBid2(level.getPrice());
-            board.setBid2vol(level.getSize());
-          } else {
-            board.setAsk2(level.getPrice());
-            board.setAsk2vol(level.getSize());
-          }
-          break;
-        case 2:
-          if (isBid) {
-            board.setBid3(level.getPrice());
-            board.setBid3vol(level.getSize());
-          } else {
-            board.setAsk3(level.getPrice());
-            board.setAsk3vol(level.getSize());
-          }
-          break;
-        case 3:
-          if (isBid) {
-            board.setBid4(level.getPrice());
-            board.setBid4vol(level.getSize());
-          } else {
-            board.setAsk4(level.getPrice());
-            board.setAsk4vol(level.getSize());
-          }
-          break;
-        case 4:
-          if (isBid) {
-            board.setBid5(level.getPrice());
-            board.setBid5vol(level.getSize());
-          } else {
-            board.setAsk5(level.getPrice());
-            board.setAsk5vol(level.getSize());
-          }
-          break;
-        case 5:
-          if (isBid) {
-            board.setBid6(level.getPrice());
-            board.setBid6vol(level.getSize());
-          } else {
-            board.setAsk6(level.getPrice());
-            board.setAsk6vol(level.getSize());
-          }
-          break;
-        case 6:
-          if (isBid) {
-            board.setBid7(level.getPrice());
-            board.setBid7vol(level.getSize());
-          } else {
-            board.setAsk7(level.getPrice());
-            board.setAsk7vol(level.getSize());
-          }
-          break;
-        case 7:
-          if (isBid) {
-            board.setBid8(level.getPrice());
-            board.setBid8vol(level.getSize());
-          } else {
-            board.setAsk8(level.getPrice());
-            board.setAsk8vol(level.getSize());
-          }
-          break;
-      }
-    }
   }
 }
