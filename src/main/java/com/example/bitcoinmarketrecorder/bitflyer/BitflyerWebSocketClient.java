@@ -329,7 +329,7 @@ public class BitflyerWebSocketClient {
     return trade;
   }
 
-  private MarketBoard convertToDomainMarketBoard(BitflyerBoard board, String symbol) {
+  protected MarketBoard convertToDomainMarketBoard(BitflyerBoard board, String symbol) {
     MarketBoard marketBoard = new MarketBoard();
     marketBoard.setExchange("BITFLYER");
     marketBoard.setSymbol(symbol);

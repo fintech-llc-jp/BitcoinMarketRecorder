@@ -221,24 +221,40 @@ public class DataPersistenceServiceImpl implements DataPersistenceService {
       board.getExchange(),
       board.getSymbol(),
       board.getTs().toString(),
-      // Get top 8 bids
+      // Get top 8 bids with volumes
       getPriceLevelString(board.getBids(), 0),
+      getVolumeLevelString(board.getBids(), 0),
       getPriceLevelString(board.getBids(), 1),
+      getVolumeLevelString(board.getBids(), 1),
       getPriceLevelString(board.getBids(), 2),
+      getVolumeLevelString(board.getBids(), 2),
       getPriceLevelString(board.getBids(), 3),
+      getVolumeLevelString(board.getBids(), 3),
       getPriceLevelString(board.getBids(), 4),
+      getVolumeLevelString(board.getBids(), 4),
       getPriceLevelString(board.getBids(), 5),
+      getVolumeLevelString(board.getBids(), 5),
       getPriceLevelString(board.getBids(), 6),
+      getVolumeLevelString(board.getBids(), 6),
       getPriceLevelString(board.getBids(), 7),
-      // Get top 8 asks
+      getVolumeLevelString(board.getBids(), 7),
+      // Get top 8 asks with volumes
       getPriceLevelString(board.getAsks(), 0),
+      getVolumeLevelString(board.getAsks(), 0),
       getPriceLevelString(board.getAsks(), 1),
+      getVolumeLevelString(board.getAsks(), 1),
       getPriceLevelString(board.getAsks(), 2),
+      getVolumeLevelString(board.getAsks(), 2),
       getPriceLevelString(board.getAsks(), 3),
+      getVolumeLevelString(board.getAsks(), 3),
       getPriceLevelString(board.getAsks(), 4),
+      getVolumeLevelString(board.getAsks(), 4),
       getPriceLevelString(board.getAsks(), 5),
+      getVolumeLevelString(board.getAsks(), 5),
       getPriceLevelString(board.getAsks(), 6),
-      getPriceLevelString(board.getAsks(), 7)
+      getVolumeLevelString(board.getAsks(), 6),
+      getPriceLevelString(board.getAsks(), 7),
+      getVolumeLevelString(board.getAsks(), 7)
     };
   }
 
@@ -251,6 +267,17 @@ public class DataPersistenceServiceImpl implements DataPersistenceService {
       return "";
     }
     return level.getPrice().setScale(0, RoundingMode.HALF_UP).toString();
+  }
+
+  private String getVolumeLevelString(List<MarketBoard.PriceLevel> levels, int index) {
+    if (levels == null || index >= levels.size()) {
+      return "";
+    }
+    MarketBoard.PriceLevel level = levels.get(index);
+    if (level == null || level.getSize() == null) {
+      return "";
+    }
+    return level.getSize().setScale(8, RoundingMode.HALF_UP).toString();
   }
 
   private void saveBestBidAskToCsv(List<BestBidAsk> bestBidAsks) {

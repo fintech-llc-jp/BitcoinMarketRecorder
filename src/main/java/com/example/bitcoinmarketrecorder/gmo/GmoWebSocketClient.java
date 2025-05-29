@@ -11,7 +11,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
-import java.math.BigDecimal;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
@@ -46,7 +45,7 @@ public class GmoWebSocketClient {
 
   private final WebSocketClient client = new ReactorNettyWebSocketClient();
   private final ObjectMapper objectMapper = new ObjectMapper();
-  private final DataPersistenceService persistenceService;
+  protected final DataPersistenceService persistenceService;
   private Disposable connectionDisposable;
   private final AtomicBoolean isReconnecting = new AtomicBoolean(false);
 
@@ -257,33 +256,44 @@ public class GmoWebSocketClient {
     return trade;
   }
 
-  private MarketBoard convertToDomainMarketBoard(GmoOrderbook orderbook) {
+  protected MarketBoard convertToDomainMarketBoard(GmoOrderbook orderbook) {
     MarketBoard marketBoard = new MarketBoard();
     marketBoard.setExchange("GMO");
     marketBoard.setSymbol(orderbook.getSymbol());
     marketBoard.setTs(Instant.now());
 
-    // Convert bids
-    for (GmoOrderbook.PriceLevel level : orderbook.getBids()) {
-      marketBoard.getBids().add(new MarketBoard.PriceLevel(level.getPrice(), level.getSize()));
+    // Convert bids (top 8 only)
+    if (orderbook.getBids() != null) {
+      for (int i = 0; i < Math.min(8, orderbook.getBids().size()); i++) {
+        GmoOrderbook.PriceLevel level = orderbook.getBids().get(i);
+        if (level != null && level.getPrice() != null && level.getSize() != null) {
+          marketBoard.getBids().add(new MarketBoard.PriceLevel(level.getPrice(), level.getSize()));
+        }
+      }
     }
 
-    // Convert asks
-    for (GmoOrderbook.PriceLevel level : orderbook.getAsks()) {
-      marketBoard.getAsks().add(new MarketBoard.PriceLevel(level.getPrice(), level.getSize()));
+    // Convert asks (top 8 only)
+    if (orderbook.getAsks() != null) {
+      for (int i = 0; i < Math.min(8, orderbook.getAsks().size()); i++) {
+        GmoOrderbook.PriceLevel level = orderbook.getAsks().get(i);
+        if (level != null && level.getPrice() != null && level.getSize() != null) {
+          marketBoard.getAsks().add(new MarketBoard.PriceLevel(level.getPrice(), level.getSize()));
+        }
+      }
     }
 
     // BestBidAskの生成と保存
-    BestBidAsk bestBidAsk = new BestBidAsk();
-    bestBidAsk.setExchange("GMO");
-    // シンボルをそのまま使用
-    bestBidAsk.setSymbol(orderbook.getSymbol());
-    bestBidAsk.setBestBid(orderbook.getBids().get(0).getPrice());
-    bestBidAsk.setBestBidVolume(BigDecimal.ZERO); // GMOではVolumeが取れないため0.0
-    bestBidAsk.setBestAsk(orderbook.getAsks().get(0).getPrice());
-    bestBidAsk.setBestAskVolume(BigDecimal.ZERO); // GMOではVolumeが取れないため0.0
-    bestBidAsk.setTimestamp(Instant.now());
-    persistenceService.saveBestBidAsk(bestBidAsk);
+    if (!marketBoard.getBids().isEmpty() && !marketBoard.getAsks().isEmpty()) {
+      BestBidAsk bestBidAsk = new BestBidAsk();
+      bestBidAsk.setExchange("GMO");
+      bestBidAsk.setSymbol(orderbook.getSymbol());
+      bestBidAsk.setBestBid(marketBoard.getBids().get(0).getPrice());
+      bestBidAsk.setBestBidVolume(marketBoard.getBids().get(0).getSize());
+      bestBidAsk.setBestAsk(marketBoard.getAsks().get(0).getPrice());
+      bestBidAsk.setBestAskVolume(marketBoard.getAsks().get(0).getSize());
+      bestBidAsk.setTimestamp(Instant.now());
+      persistenceService.saveBestBidAsk(bestBidAsk);
+    }
 
     return marketBoard;
   }
