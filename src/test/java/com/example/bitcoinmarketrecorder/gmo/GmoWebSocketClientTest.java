@@ -6,6 +6,7 @@ import static org.mockito.Mockito.*;
 import com.example.bitcoinmarketrecorder.gmo.model.GmoOrderbook;
 import com.example.bitcoinmarketrecorder.model.MarketBoard;
 import com.example.bitcoinmarketrecorder.service.DataPersistenceService;
+import java.lang.reflect.Field;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
@@ -23,8 +24,12 @@ class GmoWebSocketClientTest extends GmoWebSocketClient {
   }
 
   @BeforeEach
-  void setUp() {
+  void setUp() throws Exception {
     MockitoAnnotations.openMocks(this);
+    // リフレクションを使用してpersistenceServiceフィールドを設定
+    Field field = GmoWebSocketClient.class.getDeclaredField("persistenceService");
+    field.setAccessible(true);
+    field.set(this, persistenceService);
   }
 
   @Test
