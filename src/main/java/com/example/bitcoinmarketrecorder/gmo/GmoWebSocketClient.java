@@ -6,6 +6,7 @@ import com.example.bitcoinmarketrecorder.model.BestBidAsk;
 import com.example.bitcoinmarketrecorder.model.MarketBoard;
 import com.example.bitcoinmarketrecorder.model.Trade;
 import com.example.bitcoinmarketrecorder.service.DataPersistenceService;
+import com.example.bitcoinmarketrecorder.service.ExchSimService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -46,6 +47,7 @@ public class GmoWebSocketClient {
   private final WebSocketClient client = new ReactorNettyWebSocketClient();
   private final ObjectMapper objectMapper = new ObjectMapper();
   protected final DataPersistenceService persistenceService;
+  private final ExchSimService exchSimService;
   private Disposable connectionDisposable;
   private final AtomicBoolean isReconnecting = new AtomicBoolean(false);
 
@@ -58,8 +60,9 @@ public class GmoWebSocketClient {
   private static final String CHANNEL_TRADES = "trades";
 
   @Autowired
-  public GmoWebSocketClient(DataPersistenceService persistenceService) {
+  public GmoWebSocketClient(DataPersistenceService persistenceService, ExchSimService exchSimService) {
     this.persistenceService = persistenceService;
+    this.exchSimService = exchSimService;
   }
 
   @PostConstruct
@@ -188,6 +191,8 @@ public class GmoWebSocketClient {
           MarketBoard marketBoard = convertToDomainMarketBoard(orderbook);
           // logger.info("Received GMO MarketBoard for symbol: {}", orderbook.getSymbol());
           persistenceService.saveMarketBoard(marketBoard);
+          
+          exchSimService.processMarketBoard(marketBoard);
         } else {
           logger.debug("Received unhandled channel message: {}", channel);
         }

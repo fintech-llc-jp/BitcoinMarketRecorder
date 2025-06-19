@@ -20,7 +20,7 @@ class GmoWebSocketClientTest extends GmoWebSocketClient {
   @Mock private DataPersistenceService persistenceService;
 
   public GmoWebSocketClientTest() {
-    super(null); // テスト用のコンストラクタ
+    super(null, null); // テスト用のコンストラクタ
   }
 
   @BeforeEach

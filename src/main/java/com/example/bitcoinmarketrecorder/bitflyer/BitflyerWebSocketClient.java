@@ -6,6 +6,7 @@ import com.example.bitcoinmarketrecorder.model.BestBidAsk;
 import com.example.bitcoinmarketrecorder.model.MarketBoard;
 import com.example.bitcoinmarketrecorder.model.Trade;
 import com.example.bitcoinmarketrecorder.service.DataPersistenceService;
+import com.example.bitcoinmarketrecorder.service.ExchSimService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -49,6 +50,7 @@ public class BitflyerWebSocketClient {
   private final WebSocketClient client = new ReactorNettyWebSocketClient();
   private final ObjectMapper objectMapper = new ObjectMapper();
   private final DataPersistenceService persistenceService;
+  private final ExchSimService exchSimService;
   private Disposable connectionDisposable;
   private final AtomicLong jsonRpcId = new AtomicLong(1);
 
@@ -65,8 +67,9 @@ public class BitflyerWebSocketClient {
   private final Map<String, MarketBoard> latestBoards = new ConcurrentHashMap<>();
 
   @Autowired
-  public BitflyerWebSocketClient(DataPersistenceService persistenceService) {
+  public BitflyerWebSocketClient(DataPersistenceService persistenceService, ExchSimService exchSimService) {
     this.persistenceService = persistenceService;
+    this.exchSimService = exchSimService;
   }
 
   @PostConstruct
@@ -221,6 +224,8 @@ public class BitflyerWebSocketClient {
     latestBoards.put(symbol, marketBoard);
     persistenceService.saveMarketBoard(marketBoard);
     updateBestBidAsk(marketBoard);
+    
+    exchSimService.processMarketBoard(marketBoard);
   }
 
   private void handleBoardDeltaMessage(String channel, JsonNode message)
@@ -245,6 +250,8 @@ public class BitflyerWebSocketClient {
 
     persistenceService.saveMarketBoard(latestBoard);
     updateBestBidAsk(latestBoard);
+    
+    exchSimService.processMarketBoard(latestBoard);
   }
 
   private void updateBoardWithDelta(MarketBoard board, BitflyerBoard delta) {

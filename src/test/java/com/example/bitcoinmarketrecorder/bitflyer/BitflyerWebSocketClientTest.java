@@ -18,7 +18,7 @@ class BitflyerWebSocketClientTest extends BitflyerWebSocketClient {
   @Mock private DataPersistenceService persistenceService;
 
   public BitflyerWebSocketClientTest() {
-    super(null); // テスト用のコンストラクタ
+    super(null, null); // テスト用のコンストラクタ
   }
 
   @BeforeEach
