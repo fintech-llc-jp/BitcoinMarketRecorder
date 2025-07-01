@@ -10,6 +10,80 @@ Bitflyerも同様の処理をおこなう。
 
 Java 17 SpringBoot, CSV File
 
+## ExchSim Integration
+
+このアプリケーションは、外部の取引シミュレーションシステム（ExchSim）との統合機能を提供します。取得したマーケットデータをリアルタイムでExchSimに送信し、取引シミュレーションやバックテストに利用できます。
+
+### TradeInsert機能
+
+約定データ（Trade）をExchSimに送信する機能です。
+
+- **エンドポイント**: `/api/trade/insert`
+- **送信タイミング**: GMOまたはBitflyerから約定データを受信した際
+- **データ形式**:
+  ```json
+  {
+    "symbol": "G_BTCJPY",
+    "price": 8500000.0,
+    "quantity": 0.1,
+    "side": "BUY"
+  }
+  ```
+
+### MarketMake機能
+
+板データ（MarketBoard）をExchSimに送信する機能です。
+
+- **エンドポイント**: `/api/market-make/orders`
+- **送信タイミング**: GMOまたはBitflyerから板データを受信した際
+- **データ形式**:
+  ```json
+  {
+    "symbol": "G_BTCJPY",
+    "bidLevels": [
+      {"price": 8499000.0, "quantity": 0.5},
+      {"price": 8498000.0, "quantity": 1.0}
+    ],
+    "askLevels": [
+      {"price": 8501000.0, "quantity": 0.3},
+      {"price": 8502000.0, "quantity": 0.8}
+    ]
+  }
+  ```
+
+### 設定
+
+ExchSim統合の設定は`application.properties`で行います：
+
+```properties
+# ExchSim統合の有効/無効
+exch-sim.enabled=true
+
+# ExchSim API設定
+exch-sim.api.base-url=http://localhost:8080
+exch-sim.api.username=marketmaker1
+exch-sim.api.password=mmpass123
+
+# シンボルマッピング設定
+# GMOのシンボルをExchSimのシンボルにマッピング
+exch-sim.symbol-mapping.GMO.BTC=G_FX_BTCJPY
+exch-sim.symbol-mapping.GMO.BTC_JPY=G_BTCJPY
+exch-sim.symbol-mapping.GMO.ETH_JPY=G_ETHJPY
+
+# BitflyerのシンボルをExchSimのシンボルにマッピング
+exch-sim.symbol-mapping.BITFLYER.BTC_JPY=B_BTCJPY
+exch-sim.symbol-mapping.BITFLYER.FX_BTC_JPY=B_FX_BTCJPY
+```
+
+### 認証
+
+ExchSim APIへのアクセスには認証が必要です。ユーザー名とパスワードによる認証トークンを取得し、各APIリクエストにBearer認証として含めます。
+
+### エラーハンドリング
+
+- 401エラー（認証エラー）が発生した場合、認証トークンキャッシュをクリアして再認証を試行します
+- ネットワークエラーやその他のエラーが発生した場合、ログに記録されますが、メインのデータ収集処理には影響しません
+
 # GMO API settings
 gmo.api.base-url=https://api.coin.z.com
 gmo.api.ws-url=wss://api.coin.z.com/public/v1/ws
@@ -19,56 +93,6 @@ gmo.api.ws-url=wss://api.coin.z.com/public/v1/ws
 bitflyer.api.base-url=https://api.bitflyer.com
 bitflyer.api.ws-url=wss://ws.lightstream.bitflyer.com/json-rpc 
 
-
-DBに格納するデータ形式
-    CREATE TABLE IF NOT EXISTS trades (
-                exchange VARCHAR,           -- 取引所（'GMO' or 'BITFLYER'）
-                symbol VARCHAR,             -- 取引ペア（'BTC/JPY', 'ETH/JPY'など）
-                trade_id VARCHAR,           -- 約定ID
-                price DECIMAL(20,8),        -- 約定価格
-                size DECIMAL(20,8),         -- 約定数量
-                side VARCHAR,               -- 取引タイプ（'BUY' or 'SELL'）
-                timestamp TIMESTAMP,        -- 約定時刻
-                created_at TIMESTAMP        -- レコード作成時刻
-      )
-
-class MarketBoard(
-    val symbol: String,
-    val exchange: string,
-    val bid1: Double,
-    val bid2: Double,
-    val bid3: Double,
-    val bid4: Double,
-    val bid5: Double,
-    val bid6: Double,
-    val bid7: Double,
-    val bid8: Double,
-    val ask1: Double,
-    val ask2: Double,
-    val ask3: Double,
-    val ask4: Double,
-    val ask5: Double,
-    val ask6: Double,
-    val ask7: Double,
-    val ask8: Double,
-    val bid1vol: Double,
-    val bid2vol: Double,
-    val bid3vol: Double,
-    val bid4vol: Double,
-    val bid5vol: Double,
-    val bid6vol: Double,
-    val bid7vol: Double,
-    val bid8vol: Double,
-    val ask1vol: Double,
-    val ask2vol: Double,
-    val ask3vol: Double,
-    val ask4vol: Double,
-    val ask5vol: Double,
-    val ask6vol: Double,
-    val ask7vol: Double,
-    val ask8vol: Double,
-    val ts: Instant
-) 
 
 
 
