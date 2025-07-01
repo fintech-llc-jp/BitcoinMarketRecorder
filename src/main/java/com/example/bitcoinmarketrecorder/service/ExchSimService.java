@@ -33,6 +33,34 @@ public class ExchSimService {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final Map<String, String> tokenCache = new ConcurrentHashMap<>();
     
+    public void processTradeData(com.example.bitcoinmarketrecorder.model.Trade trade) {
+        if (!exchSimProperties.isEnabled()) {
+            logger.debug("ExchSim integration is disabled");
+            return;
+        }
+        
+        String targetSymbol = exchSimProperties.mapSymbol(
+            trade.getExchange().toUpperCase(), 
+            trade.getSymbol()
+        );
+        
+        if (targetSymbol == null) {
+            logger.debug("No symbol mapping found for {}:{}", 
+                trade.getExchange(), trade.getSymbol());
+            return;
+        }
+        
+        try {
+            String token = getAuthToken();
+            if (token != null) {
+                sendTradeInsertRequest(token, targetSymbol, trade);
+            }
+        } catch (Exception e) {
+            logger.error("Failed to process trade data for symbol {}: {}", 
+                targetSymbol, e.getMessage(), e);
+        }
+    }
+    
     public void processMarketBoard(MarketBoard marketBoard) {
         if (!exchSimProperties.isEnabled()) {
             logger.debug("ExchSim integration is disabled");
@@ -101,6 +129,40 @@ public class ExchSimService {
         }
     }
     
+    private void sendTradeInsertRequest(String token, String symbol, com.example.bitcoinmarketrecorder.model.Trade trade) {
+        try {
+            String tradeInsertUrl = exchSimProperties.getApi().getBaseUrl() + "/api/trade/insert";
+            
+            TradeInsertRequest request = convertToTradeInsertRequest(symbol, trade);
+            
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.setBearerAuth(token);
+            
+            HttpEntity<TradeInsertRequest> entity = new HttpEntity<>(request, headers);
+            
+            ResponseEntity<Map> response = restTemplate.postForEntity(tradeInsertUrl, entity, Map.class);
+            
+            if (response.getStatusCode().is2xxSuccessful()) {
+                logger.info("Successfully sent trade insert request for symbol: {}, price: {}, size: {}, side: {}", 
+                    symbol, trade.getPrice(), trade.getSize(), trade.getSide());
+                logger.debug("Trade insert response: {}", response.getBody());
+            } else {
+                logger.error("Failed to send trade insert request for symbol {}: {}", 
+                    symbol, response.getStatusCode());
+            }
+            
+        } catch (Exception e) {
+            logger.error("Error sending trade insert request for symbol {}: {}", 
+                symbol, e.getMessage(), e);
+            
+            if (e.getMessage() != null && e.getMessage().contains("401")) {
+                tokenCache.clear();
+                logger.info("Cleared auth token cache due to 401 error");
+            }
+        }
+    }
+    
     private void sendMarketMakeOrder(String token, String symbol, MarketBoard marketBoard) {
         try {
             String marketMakeUrl = exchSimProperties.getApi().getBaseUrl() + "/api/market-make/orders";
@@ -132,6 +194,16 @@ public class ExchSimService {
                 logger.info("Cleared auth token cache due to 401 error");
             }
         }
+    }
+    
+    private TradeInsertRequest convertToTradeInsertRequest(String symbol, com.example.bitcoinmarketrecorder.model.Trade trade) {
+        TradeInsertRequest request = new TradeInsertRequest();
+        request.setSymbol(symbol);
+        request.setPrice(trade.getPrice().doubleValue());
+        request.setQuantity(trade.getSize().doubleValue());
+        request.setSide(trade.getSide());
+        
+        return request;
     }
     
     private MarketMakeRequest convertToMarketMakeRequest(String symbol, MarketBoard marketBoard) {
@@ -189,6 +261,45 @@ public class ExchSimService {
         
         public void setAskLevels(List<PriceLevel> askLevels) {
             this.askLevels = askLevels;
+        }
+    }
+    
+    public static class TradeInsertRequest {
+        private String symbol;
+        private double price;
+        private double quantity;
+        private String side;
+        
+        public String getSymbol() {
+            return symbol;
+        }
+        
+        public void setSymbol(String symbol) {
+            this.symbol = symbol;
+        }
+        
+        public double getPrice() {
+            return price;
+        }
+        
+        public void setPrice(double price) {
+            this.price = price;
+        }
+        
+        public double getQuantity() {
+            return quantity;
+        }
+        
+        public void setQuantity(double quantity) {
+            this.quantity = quantity;
+        }
+        
+        public String getSide() {
+            return side;
+        }
+        
+        public void setSide(String side) {
+            this.side = side;
         }
     }
     

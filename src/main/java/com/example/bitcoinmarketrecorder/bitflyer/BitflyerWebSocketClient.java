@@ -214,6 +214,9 @@ public class BitflyerWebSocketClient {
     List<Trade> trades =
         executions.stream().map(exec -> convertToDomainTrade(exec, symbol)).toList();
     persistenceService.saveTrades(trades);
+    
+    // Send trades to ExchSim
+    trades.forEach(trade -> exchSimService.processTradeData(trade));
   }
 
   private void handleBoardSnapshotMessage(String channel, JsonNode message)

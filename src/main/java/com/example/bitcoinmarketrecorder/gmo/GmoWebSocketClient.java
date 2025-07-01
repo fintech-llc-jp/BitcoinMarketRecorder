@@ -186,6 +186,9 @@ public class GmoWebSocketClient {
           Trade domainTrade = convertToDomainTrade(trade);
           // logger.info("Received GMO trade: {}", trade);
           persistenceService.saveTrades(List.of(domainTrade));
+          
+          // Send trade to ExchSim
+          exchSimService.processTradeData(domainTrade);
         } else if (CHANNEL_ORDERBOOK.equals(channel)) {
           GmoOrderbook orderbook = objectMapper.convertValue(rootNode, GmoOrderbook.class);
           MarketBoard marketBoard = convertToDomainMarketBoard(orderbook);
