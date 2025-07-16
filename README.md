@@ -10,16 +10,16 @@ Bitflyerも同様の処理をおこなう。
 
 Java 17 SpringBoot, CSV File
 
-## ExchSim Integration
+## Redis Pub/Sub Integration
 
-このアプリケーションは、外部の取引シミュレーションシステム（ExchSim）との統合機能を提供します。取得したマーケットデータをリアルタイムでExchSimに送信し、取引シミュレーションやバックテストに利用できます。
+このアプリケーションは、Redisを利用したPub/Sub機能でリアルタイムデータ配信を行います。取得したマーケットデータを低遅延でRedisチャンネルに配信し、取引シミュレーションやリアルタイム分析に利用できます。
 
-### TradeInsert機能
+### TradeInsert配信
 
-約定データ（Trade）をExchSimに送信する機能です。
+約定データ（Trade）をRedisチャンネルに配信する機能です。
 
-- **エンドポイント**: `/api/trade/insert`
-- **送信タイミング**: GMOまたはBitflyerから約定データを受信した際
+- **チャンネル形式**: `trade-insert:{symbol}`
+- **配信タイミング**: GMOまたはBitflyerから約定データを受信した際
 - **データ形式**:
   ```json
   {
@@ -29,13 +29,16 @@ Java 17 SpringBoot, CSV File
     "side": "BUY"
   }
   ```
+- **チャンネル例**:
+  - `trade-insert:G_BTCJPY`
+  - `trade-insert:B_FX_BTCJPY`
 
-### MarketMake機能
+### MarketMake配信
 
-板データ（MarketBoard）をExchSimに送信する機能です。
+板データ（MarketBoard）をRedisチャンネルに配信する機能です。
 
-- **エンドポイント**: `/api/market-make/orders`
-- **送信タイミング**: GMOまたはBitflyerから板データを受信した際
+- **チャンネル形式**: `market-make:{symbol}`
+- **配信タイミング**: GMOまたはBitflyerから板データを受信した際
 - **データ形式**:
   ```json
   {
@@ -50,39 +53,75 @@ Java 17 SpringBoot, CSV File
     ]
   }
   ```
+- **チャンネル例**:
+  - `market-make:G_BTCJPY`
+  - `market-make:B_FX_BTCJPY`
 
 ### 設定
 
-ExchSim統合の設定は`application.properties`で行います：
+Redis Pub/Sub統合の設定は`application.properties`で行います：
 
 ```properties
-# ExchSim統合の有効/無効
+# Redis接続設定
+redis.host=localhost
+redis.port=6379
+redis.password=
+redis.database=0
+
+# Redis配信機能の有効/無効
+redis.publisher.enabled=true
+
+# チャンネル設定
+redis.publisher.market-make.channel-prefix=market-make
+redis.publisher.trade-insert.channel-prefix=trade-insert
+
+# データ配信の有効/無効（既存設定を流用）
 exch-sim.enabled=true
 
-# ExchSim API設定
-exch-sim.api.base-url=http://localhost:8080
-exch-sim.api.username=marketmaker1
-exch-sim.api.password=mmpass123
-
-# シンボルマッピング設定
-# GMOのシンボルをExchSimのシンボルにマッピング
+# シンボルマッピング設定（既存設定を流用）
+# GMOのシンボルをRedisチャンネル用シンボルにマッピング
 exch-sim.symbol-mapping.GMO.BTC=G_FX_BTCJPY
 exch-sim.symbol-mapping.GMO.BTC_JPY=G_BTCJPY
 exch-sim.symbol-mapping.GMO.ETH_JPY=G_ETHJPY
 
-# BitflyerのシンボルをExchSimのシンボルにマッピング
+# BitflyerのシンボルをRedisチャンネル用シンボルにマッピング
 exch-sim.symbol-mapping.BITFLYER.BTC_JPY=B_BTCJPY
 exch-sim.symbol-mapping.BITFLYER.FX_BTC_JPY=B_FX_BTCJPY
 ```
 
-### 認証
+### Google Cloud環境での設定
 
-ExchSim APIへのアクセスには認証が必要です。ユーザー名とパスワードによる認証トークンを取得し、各APIリクエストにBearer認証として含めます。
+Google Cloud Memorystore for Redisを使用する場合：
 
-### エラーハンドリング
+```properties
+# 環境変数での設定を推奨
+redis.host=${REDIS_HOST:localhost}
+redis.port=${REDIS_PORT:6379}
+redis.password=${REDIS_PASSWORD:}
+```
 
-- 401エラー（認証エラー）が発生した場合、認証トークンキャッシュをクリアして再認証を試行します
-- ネットワークエラーやその他のエラーが発生した場合、ログに記録されますが、メインのデータ収集処理には影響しません
+### データ購読方法
+
+**Redis CLIでの確認:**
+```bash
+# 特定チャンネル購読
+redis-cli SUBSCRIBE "market-make:G_BTCJPY"
+redis-cli SUBSCRIBE "trade-insert:G_BTCJPY"
+
+# パターンマッチ購読
+redis-cli PSUBSCRIBE "market-make:*"
+redis-cli PSUBSCRIBE "trade-insert:*"
+
+# 全活動監視
+redis-cli MONITOR
+```
+
+### 性能特徴
+
+- **低遅延**: HTTP RESTと比較して1/10以下の遅延（0.1-1ms）
+- **高スループット**: 非同期配信による高い処理能力
+- **接続安定性**: Redis自動再接続機能
+- **認証不要**: HTTPベースの認証オーバーヘッド除去
 
 # GMO API settings
 gmo.api.base-url=https://api.coin.z.com

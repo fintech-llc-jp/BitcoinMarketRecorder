@@ -29,6 +29,9 @@ public class ExchSimService {
     @Autowired
     private ExchSimProperties exchSimProperties;
     
+    @Autowired
+    private RedisPublisherService redisPublisherService;
+    
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final Map<String, String> tokenCache = new ConcurrentHashMap<>();
@@ -51,10 +54,8 @@ public class ExchSimService {
         }
         
         try {
-            String token = getAuthToken();
-            if (token != null) {
-                sendTradeInsertRequest(token, targetSymbol, trade);
-            }
+            TradeInsertRequest request = convertToTradeInsertRequest(targetSymbol, trade);
+            redisPublisherService.publishTradeInsert(targetSymbol, request);
         } catch (Exception e) {
             logger.error("Failed to process trade data for symbol {}: {}", 
                 targetSymbol, e.getMessage(), e);
@@ -79,16 +80,16 @@ public class ExchSimService {
         }
         
         try {
-            String token = getAuthToken();
-            if (token != null) {
-                sendMarketMakeOrder(token, targetSymbol, marketBoard);
-            }
+            MarketMakeRequest request = convertToMarketMakeRequest(targetSymbol, marketBoard);
+            redisPublisherService.publishMarketMake(targetSymbol, request);
         } catch (Exception e) {
             logger.error("Failed to process market board for symbol {}: {}", 
                 targetSymbol, e.getMessage(), e);
         }
     }
     
+    // Deprecated: HTTP authentication no longer needed with Redis pub/sub
+    /*
     private String getAuthToken() {
         String cacheKey = exchSimProperties.getApi().getUsername();
         String cachedToken = tokenCache.get(cacheKey);
@@ -128,7 +129,10 @@ public class ExchSimService {
             return null;
         }
     }
+    */
     
+    // Deprecated: HTTP requests replaced with Redis pub/sub
+    /*
     private void sendTradeInsertRequest(String token, String symbol, com.example.bitcoinmarketrecorder.model.Trade trade) {
         try {
             String tradeInsertUrl = exchSimProperties.getApi().getBaseUrl() + "/api/trade/insert";
@@ -162,7 +166,10 @@ public class ExchSimService {
             }
         }
     }
+    */
     
+    // Deprecated: HTTP requests replaced with Redis pub/sub
+    /*
     private void sendMarketMakeOrder(String token, String symbol, MarketBoard marketBoard) {
         try {
             String marketMakeUrl = exchSimProperties.getApi().getBaseUrl() + "/api/market-make/orders";
@@ -195,6 +202,7 @@ public class ExchSimService {
             }
         }
     }
+    */
     
     private TradeInsertRequest convertToTradeInsertRequest(String symbol, com.example.bitcoinmarketrecorder.model.Trade trade) {
         TradeInsertRequest request = new TradeInsertRequest();
