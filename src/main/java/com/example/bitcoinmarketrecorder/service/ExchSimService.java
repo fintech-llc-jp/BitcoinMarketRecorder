@@ -221,7 +221,7 @@ public class ExchSimService {
         List<PriceLevel> bidLevels = new ArrayList<>();
         List<PriceLevel> askLevels = new ArrayList<>();
         
-        int maxLevels = Math.min(5, Math.max(
+        int maxLevels = Math.min(8, Math.max(
             marketBoard.getBids().size(), 
             marketBoard.getAsks().size()
         ));
