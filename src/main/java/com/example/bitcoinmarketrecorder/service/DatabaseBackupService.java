@@ -25,10 +25,17 @@ public class DatabaseBackupService {
   @Value("${database.csv-dir:csv}")
   private String csvDir;
 
+  @Value("${database.csv-enabled:true}")
+  private boolean csvEnabled;
+
   @Autowired private DataPersistenceService dataPersistenceService;
 
   // 手動実行用のメソッド
   public void manualBackup() {
+    if (!csvEnabled) {
+      logger.info("CSV output is disabled, skipping manual backup");
+      return;
+    }
     logger.info("Starting manual backup...");
     backupAndCleanup();
     logger.info("Manual backup completed");
@@ -36,6 +43,11 @@ public class DatabaseBackupService {
 
   @Scheduled(cron = "0 0 0 * * ?") // 毎日0時に実行するように変更
   public void backupAndCleanup() {
+    if (!csvEnabled) {
+      logger.debug("CSV output is disabled, skipping backup and cleanup");
+      return;
+    }
+
     if (!backupLock.tryLock()) {
       logger.warn("Another backup operation is in progress, skipping this backup");
       return;

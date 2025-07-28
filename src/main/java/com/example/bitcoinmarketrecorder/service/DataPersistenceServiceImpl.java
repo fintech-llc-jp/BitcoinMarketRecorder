@@ -40,6 +40,9 @@ public class DataPersistenceServiceImpl implements DataPersistenceService {
   @Value("${database.csv-dir:csv}")
   private String csvDir;
 
+  @Value("${database.csv-enabled:true}")
+  private boolean csvEnabled;
+
   public DataPersistenceServiceImpl() {
     this.tradeQueue = new LinkedBlockingQueue<>();
     this.boardQueue = new LinkedBlockingQueue<>();
@@ -63,7 +66,9 @@ public class DataPersistenceServiceImpl implements DataPersistenceService {
               tradeQueue.drainTo(trades, 100); // 最大100件までバッチ処理
               if (!trades.isEmpty()) {
                 logger.info("Processing {} trades from queue", trades.size());
-                saveTradesToCsv(trades);
+                if (csvEnabled) {
+                  saveTradesToCsv(trades);
+                }
               }
 
               // Process market boards
@@ -71,7 +76,9 @@ public class DataPersistenceServiceImpl implements DataPersistenceService {
               boardQueue.drainTo(boards, 100);
               if (!boards.isEmpty()) {
                 logger.info("Processing {} market boards from queue", boards.size());
-                saveMarketBoardsToCsv(boards);
+                if (csvEnabled) {
+                  saveMarketBoardsToCsv(boards);
+                }
               }
 
               // Process best bid/ask
@@ -79,7 +86,9 @@ public class DataPersistenceServiceImpl implements DataPersistenceService {
               bestBidAskQueue.drainTo(bestBidAsks, 100);
               if (!bestBidAsks.isEmpty()) {
                 logger.info("Processing {} best bid/ask records from queue", bestBidAsks.size());
-                saveBestBidAskToCsv(bestBidAsks);
+                if (csvEnabled) {
+                  saveBestBidAskToCsv(bestBidAsks);
+                }
               }
 
               // キューが空の場合は少し待機

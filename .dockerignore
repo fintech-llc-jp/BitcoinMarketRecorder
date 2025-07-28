@@ -1,0 +1,34 @@
+# Git files
+.git
+.gitignore
+
+# Build outputs (except libs directory)
+build/classes/
+build/generated/
+build/reports/
+build/resources/
+build/tmp/
+target/
+
+# CSV data files
+csv/
+*.csv
+
+# IDE files
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Gradle
+.gradle/
+gradle-wrapper.jar
+
+# Temporary files
+*.tmp
+*.log
