@@ -55,6 +55,12 @@ public class ExchSimService {
         
         try {
             TradeInsertRequest request = convertToTradeInsertRequest(targetSymbol, trade);
+            
+            // 詳細ログを追加
+            logger.info("Processing TradeData for {}: Price={}, Size={}, Side={}, Exchange={}, Timestamp={}", 
+                targetSymbol, trade.getPrice(), trade.getSize(), trade.getSide(), 
+                trade.getExchange(), trade.getTimestamp());
+            
             redisPublisherService.publishTradeInsert(targetSymbol, request);
         } catch (Exception e) {
             logger.error("Failed to process trade data for symbol {}: {}", 
@@ -81,6 +87,14 @@ public class ExchSimService {
         
         try {
             MarketMakeRequest request = convertToMarketMakeRequest(targetSymbol, marketBoard);
+            
+            // 詳細ログを追加
+            BigDecimal bestBid = marketBoard.getBids().isEmpty() ? null : marketBoard.getBids().get(0).getPrice();
+            BigDecimal bestAsk = marketBoard.getAsks().isEmpty() ? null : marketBoard.getAsks().get(0).getPrice();
+            
+            logger.info("Processing MarketBoard for {}: BestBid={}, BestAsk={}, {} Bids, {} Asks", 
+                targetSymbol, bestBid, bestAsk, marketBoard.getBids().size(), marketBoard.getAsks().size());
+            
             redisPublisherService.publishMarketMake(targetSymbol, request);
         } catch (Exception e) {
             logger.error("Failed to process market board for symbol {}: {}", 

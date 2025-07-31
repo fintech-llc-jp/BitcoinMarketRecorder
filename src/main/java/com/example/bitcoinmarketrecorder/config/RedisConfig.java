@@ -27,6 +27,34 @@ public class RedisConfig {
     private int database;
 
     @Bean
+    public io.lettuce.core.RedisClient customRedisClient() {
+        // RedisURIでライブラリ情報を無効化してCLIENT SETINFOコマンドを回避
+        io.lettuce.core.RedisURI.Builder builder = io.lettuce.core.RedisURI.Builder
+            .redis(host, port)
+            .withDatabase(database)
+            .withLibraryName("")
+            .withLibraryVersion("");
+        
+        if (password != null && !password.trim().isEmpty()) {
+            builder.withPassword(password.toCharArray());
+        }
+        
+        io.lettuce.core.RedisURI redisUri = builder.build();
+        
+        // カスタムClientOptionsでCLIENT SETINFOを無効化
+        io.lettuce.core.ClientOptions clientOptions = io.lettuce.core.ClientOptions.builder()
+            .pingBeforeActivateConnection(false)
+            .publishOnScheduler(false)
+            .autoReconnect(true)
+            .build();
+        
+        io.lettuce.core.RedisClient redisClient = io.lettuce.core.RedisClient.create(redisUri);
+        redisClient.setOptions(clientOptions);
+        
+        return redisClient;
+    }
+
+    @Bean
     public RedisConnectionFactory redisConnectionFactory() {
         RedisStandaloneConfiguration config = new RedisStandaloneConfiguration();
         config.setHostName(host);
@@ -42,10 +70,18 @@ public class RedisConfig {
             .clientOptions(io.lettuce.core.ClientOptions.builder()
                 .pingBeforeActivateConnection(false)
                 .publishOnScheduler(false)
+                .autoReconnect(true)
                 .build())
             .build();
         
-        return new LettuceConnectionFactory(config, clientConfig);
+        LettuceConnectionFactory factory = new LettuceConnectionFactory(config, clientConfig);
+        
+        // ライフサイクル管理の問題を回避するため手動で初期化
+        factory.setEagerInitialization(true);
+        factory.afterPropertiesSet();
+        factory.start();
+        
+        return factory;
     }
 
     @Bean

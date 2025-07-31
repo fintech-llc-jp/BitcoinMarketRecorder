@@ -16,9 +16,16 @@ repositories {
     mavenCentral()
 }
 
+ext {
+    set("lettuceVersion", "6.4.0.RELEASE")
+}
+
 dependencies {
     implementation("org.springframework.boot:spring-boot-starter-webflux") // For WebSocket client
-    implementation("org.springframework.boot:spring-boot-starter-data-redis") // For Redis support
+    implementation("org.springframework.boot:spring-boot-starter-data-redis") {
+        exclude(group = "io.lettuce", module = "lettuce-core") // 古いlettuceを除外
+    }
+    implementation("io.lettuce:lettuce-core:6.4.0.RELEASE") // Lettuce 6.4.0でCLIENT SETINFO問題を解決
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
     implementation("io.projectreactor.kotlin:reactor-kotlin-extensions")
     implementation("org.jetbrains.kotlin:kotlin-reflect")

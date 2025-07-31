@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import java.util.concurrent.CompletableFuture;
 
 @Service
+@org.springframework.context.annotation.DependsOn("redisConnectionFactory")
 public class RedisPublisherService {
 
     private static final Logger logger = LoggerFactory.getLogger(RedisPublisherService.class);
@@ -64,8 +65,10 @@ public class RedisPublisherService {
                 
                 redisTemplate.convertAndSend(channel, jsonMessage);
                 
-                logger.info("Successfully published market make to Redis channel: {}, symbol: {}", 
-                    channel, request.getSymbol());
+                logger.info("Successfully published market make to Redis channel: {}, symbol: {}, {} bidLevels, {} askLevels", 
+                    channel, request.getSymbol(), 
+                    request.getBidLevels() != null ? request.getBidLevels().size() : 0,
+                    request.getAskLevels() != null ? request.getAskLevels().size() : 0);
                 logger.debug("Market make message: {}", jsonMessage);
                 
             } catch (JsonProcessingException e) {
@@ -117,8 +120,10 @@ public class RedisPublisherService {
             
             redisTemplate.convertAndSend(channel, jsonMessage);
             
-            logger.info("Successfully published market make to Redis channel: {}, symbol: {}", 
-                channel, request.getSymbol());
+            logger.info("Successfully published market make to Redis channel: {}, symbol: {}, {} bidLevels, {} askLevels", 
+                channel, request.getSymbol(), 
+                request.getBidLevels() != null ? request.getBidLevels().size() : 0,
+                request.getAskLevels() != null ? request.getAskLevels().size() : 0);
             logger.debug("Market make message: {}", jsonMessage);
             
         } catch (JsonProcessingException e) {
